@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "Панель баффов и дебаффов; голод 0–6 через единственное штатное истощение D&D5e 2014; исправлена потеря панели после обновления персонажа.",
-  "version": "0.6.6",
+  "description": "Панель баффов и дебаффов; исправлена синхронизация голода и истощения D&D5e 6.0.6 (Legacy 2014).",
+  "version": "0.6.7",
   "authors": [
     {
       "name": "LipatoS",
@@ -35,5 +35,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.6/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.7/lipatos-buffs-debuffs.zip"
 }

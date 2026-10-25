@@ -9,6 +9,8 @@ const tasks = new Map();
 const recentRests = new Map();
 const received = new Set();
 const ZERO_ICON = `modules/${NS}/icons/hunger-0.webp`;
+// Fixed document ID used by D&D5e 6.x for the official Exhaustion condition.
+const EXHAUSTION_ID = 'dnd5eexhaustion0';
 
 export const STEP = Object.freeze([
   'Пора поесть. Пока штрафов нет; следующий долгий отдых без еды вызовет истощение 1.',
@@ -34,14 +36,30 @@ function isExhaustion(effect) {
     || effect?.statuses?.has?.('exhaustion') === true
     || effect?.statuses?.includes?.('exhaustion') === true;
 }
-function nativeEffects(actor) { return effectsOf(actor).filter(isExhaustion); }
+function nativeCondition(actor) {
+  // Only the system-managed, *persisted* condition counts as native Exhaustion.
+  // Prior versions created a random-ID imitation; it is NOT the D&D5e condition.
+  return actor?.effects?.get?.(EXHAUSTION_ID) ?? null;
+}
+function obsoleteExhaustion(actor) {
+  // Only include real embedded source documents. Virtual/derived effects must
+  // NEVER be passed to deleteEmbeddedDocuments ("does not exist" error).
+  const persisted = new Set((actor?.toObject?.()?.effects ?? actor?._source?.effects ?? [])
+    .map(effect => effect?._id).filter(Boolean));
+  return effectsOf(actor).filter(effect => effect?.id && effect.id !== EXHAUSTION_ID
+    && isExhaustion(effect) && persisted.has(effect.id));
+}
 function nativeLevel(actor) {
-  const natives = nativeEffects(actor);
-  if (natives.length) return Math.max(...natives.map(effect => levelOf(effect.system?.level) ?? 1));
-  // D&D5e v6 derives actor attributes.exhaustion from these effects.
-  // After an effect removal that derived actor field can still be stale until
-  // preparation finishes: never re-count the removed condition from it.
-  return 0;
+  // D&D5e 6.0.6 derives the effective level from its canonical ActiveEffect.
+  // Account for old non-canonical effects during one-time migration so the
+  // previous hunger level is not lost when upgrading from 0.6.6.
+  const active = nativeCondition(actor);
+  const legacy = obsoleteExhaustion(actor);
+  return Math.max(
+    levelOf(actor?.system?.attributes?.exhaustion) ?? 0,
+    levelOf(active?.system?.level) ?? 0,
+    ...legacy.map(effect => levelOf(effect.system?.level) ?? 1)
+  );
 }
 function legacyEffects(actor) {
   return effectsOf(actor).filter(effect => effect.getFlag?.(NS, 'hunger') === true && !isExhaustion(effect));
@@ -64,34 +82,31 @@ export function zeroEffectData() {
   };
 }
 
-/** Never attempt to use a synthesized ID like dnd5eexhaustion0.
- * Use the actor's real embedded documents with real IDs. Native effects are
- * the only source of speed, hit point, roll and death consequences.
+/**
+ * D&D5e 6.0.6 owns the canonical exhaustion ActiveEffect (fixed ID
+ * dnd5eexhaustion0). The system explicitly supports changes to
+ * system.attributes.exhaustion, converting them to condition level deltas.
+ * Never create, update, or delete that effect manually: doing so races the
+ * long-rest implementation and can request a deletion of an absent document.
  */
 export async function setNativeExhaustion(actor, target) {
-  if (!Number.isInteger(target) || target < 0 || target > 6) throw new RangeError('Invalid exhaustion level');
-  const natives = nativeEffects(actor);
-  const existing = natives.find(e => e.type === 'condition' && e.system?.type === 'exhaustion'
-    && e.id && (!actor.effects?.get || actor.effects.get(e.id) === e));
-  if (target === 0) {
-    if (natives.length) await actor.deleteEmbeddedDocuments('ActiveEffect', natives.map(e => e.id));
-    return;
+  if (!Number.isInteger(target) || target < 0 || target > 6) {
+    throw new RangeError('Invalid exhaustion level');
   }
-  if (existing) {
-    if (levelOf(existing.system?.level) !== target) {
-      await actor.updateEmbeddedDocuments('ActiveEffect', [{ _id: existing.id, 'system.level': target }]);
+  const actual = levelOf(actor?.system?.attributes?.exhaustion) ?? 0;
+  if (actual !== target) {
+    await actor.update({ 'system.attributes.exhaustion': target });
+  }
+  // An old version of LipatoS wrote imitation exhaustion effects with random
+  // IDs. Remove only real persisted non-canonical documents, and never remove
+  // the official fixed-ID condition owned by the game system.
+  for (const effect of obsoleteExhaustion(actor)) {
+    if (!actor.effects?.get?.(effect.id)) continue;
+    try { await effect.delete(); }
+    catch (error) {
+      // The rest engine / another module can remove an obsolete effect first.
+      if (actor.effects?.get?.(effect.id)) throw error;
     }
-    const duplicateIds = natives.filter(e => e.id !== existing.id).map(e => e.id);
-    if (duplicateIds.length) await actor.deleteEmbeddedDocuments('ActiveEffect', duplicateIds);
-  } else {
-    // Legacy 5.x status-only effects have no condition data model. Create the
-    // valid v6 condition FIRST, then remove the old malformed status.
-    const created = await actor.createEmbeddedDocuments('ActiveEffect', [{
-      name: 'Истощение', type: 'condition', system: { type: 'exhaustion', level: target },
-      statuses: ['exhaustion'], disabled: false, transfer: false
-    }]);
-    if (!created?.length) throw new Error('D&D5e failed to create exhaustion condition');
-    if (natives.length) await actor.deleteEmbeddedDocuments('ActiveEffect', natives.map(e => e.id));
   }
 }
 async function syncZeroWarning(actor, hunger) {
@@ -137,7 +152,7 @@ export async function updateHunger(actor, action) {
 
     // Commit mechanics BEFORE updating bookkeeping. Failed ActiveEffect
     // updates therefore do not advance hunger silently.
-    if (target !== currentNative || nativeEffects(actor).length > 1) await setNativeExhaustion(actor, target);
+    if (target !== currentNative || obsoleteExhaustion(actor).length) await setNativeExhaustion(actor, target);
     const obsolete = legacyEffects(actor);
     if (obsolete.length) await actor.deleteEmbeddedDocuments('ActiveEffect', obsolete.map(e => e.id));
     // The warning is cosmetic: a failure should not cause a second rest to
