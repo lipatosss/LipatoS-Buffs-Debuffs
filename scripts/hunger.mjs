@@ -6,7 +6,9 @@
 const NS = 'lipatos-buffs-debuffs';
 const CHANNEL = `module.${NS}`;
 const tasks = new Map();
-const recentRests = new Map();
+// De-duplicate the SAME rest result, not every rest inside a time window.
+// Fast consecutive long rests are valid (GM testing often does this).
+const processedRestEvents = new WeakSet();
 const received = new Set();
 const ZERO_ICON = `modules/${NS}/icons/hunger-0.webp`;
 // Fixed document ID used by D&D5e 6.x for the official Exhaustion condition.
@@ -262,11 +264,8 @@ async function receive(data) {
     const user = game.users.get(data.userId);
     const actor = await fromUuid(data.actorUuid);
     if (!isOwner(actor, user)) return;
-    if (data.action === 'rest') {
-      const last = recentRests.get(actor.uuid) ?? 0;
-      if (Date.now() - last < 5000) return;
-      recentRests.set(actor.uuid, Date.now());
-    }
+    // requestId is already de-duplicated above. Never throttle distinct rests
+    // by elapsed time: two separate long rests must advance hunger twice.
     await updateHunger(actor, data.action);
   } catch (error) { console.error(NS + ' | GM socket hunger action', error); }
 }
@@ -337,12 +336,17 @@ export function decoratePips(root, actor) {
 
 Hooks.on('dnd5e.restCompleted', (actor, result, config) => {
   if (actor?.type !== 'character' || (config?.type !== 'long' && config?.restType !== 'long' && !result?.longRest)) return;
-  // One actor may emit restCompleted on both GM and player clients. The GM
-  // is authoritative and throttles duplicates, including socket events.
-  const last = recentRests.get(actor.uuid) ?? 0;
-  if (Date.now() - last < 5000) return;
-  recentRests.set(actor.uuid, Date.now());
-  void request(actor, 'rest').catch(error => console.error(NS + ' | long rest hunger', error));
+  // A hook fires on the client completing this rest. Prevent accidental
+  // re-processing of the *same* result object, but allow any number of
+  // distinct completed long rests in rapid succession.
+  if (result && typeof result === 'object') {
+    if (processedRestEvents.has(result)) return;
+    processedRestEvents.add(result);
+  }
+  void request(actor, 'rest').catch(error => {
+    console.error(NS + ' | long rest hunger', error);
+    ui.notifications?.error?.('LipatoS: не удалось применить голод после отдыха (F12).');
+  });
 });
 Hooks.once('ready', () => {
   game.socket?.on?.(CHANNEL, receive);
