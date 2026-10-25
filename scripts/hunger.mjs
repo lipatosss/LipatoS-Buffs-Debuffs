@@ -56,9 +56,10 @@ function nativeLevel(actor) {
   const active = nativeCondition(actor);
   const legacy = obsoleteExhaustion(actor);
   return Math.max(
-    levelOf(actor?.system?.attributes?.exhaustion) ?? 0,
-    levelOf(active?.system?.level) ?? 0,
-    ...legacy.map(effect => levelOf(effect.system?.level) ?? 1)
+    levelOf(active?.system?.level) ?? (active ? 1 : 0),
+    ...legacy.map(effect => levelOf(effect.system?.level) ?? 1),
+    // Only use the derived value if no effect is present; it can be stale.
+    active || legacy.length ? 0 : (levelOf(actor?.system?.attributes?.exhaustion) ?? 0)
   );
 }
 function legacyEffects(actor) {
@@ -83,28 +84,89 @@ export function zeroEffectData() {
 }
 
 /**
- * D&D5e 6.0.6 owns the canonical exhaustion ActiveEffect (fixed ID
- * dnd5eexhaustion0). The system explicitly supports changes to
- * system.attributes.exhaustion, converting them to condition level deltas.
- * Never create, update, or delete that effect manually: doing so races the
- * long-rest implementation and can request a deletion of an absent document.
+ * Never write system.attributes.exhaustion for hunger. In D&D5e 6.0.6
+ * Actor5e._onUpdate calls _onUpdateExhaustion without awaiting it: two quick
+ * updates can both try to create the fixed-ID effect and throw a duplicate-ID
+ * rejection outside the module's promise chain. Change the condition document
+ * itself instead. The system derives exhaustion and all 2014 penalties from it.
  */
+function persistedCanonical(actor) {
+  const raw = actor?._source?.effects ?? actor?.toObject?.()?.effects ?? [];
+  return raw.some?.(effect => effect?._id === EXHAUSTION_ID) === true;
+}
+function pause(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// D&D5e may be completing a native rest condition write on this same actor.
+async function settleCanonical(actor, attempts=6, gap=50) {
+  for (let i = 0; i < attempts; i++) {
+    const effect = nativeCondition(actor);
+    if (effect) return effect;
+    await pause(gap);
+  }
+  return nativeCondition(actor);
+}
+
+async function changeCanonicalLevel(actor, target) {
+  let effect = nativeCondition(actor);
+  if (effect) {
+    const current = levelOf(effect.system?.level) ?? 1;
+    if (target === 0) await effect.delete();
+    else if (current !== target) await effect.update({ 'system.level': target });
+    return;
+  }
+  if (target === 0) return;
+
+  // An ActiveEffect creation in the core system can still be in flight after
+  // a long-rest hook. Never race it by immediately creating another one.
+  effect = await settleCanonical(actor);
+  if (effect) {
+    if ((levelOf(effect.system?.level) ?? 1) !== target) await effect.update({ 'system.level': target });
+    return;
+  }
+
+  // A persisted ID that isn't yet present in the live collection indicates a
+  // document synchronization issue; fail safely rather than create a duplicate.
+  if (persistedCanonical(actor)) {
+    throw new Error(`Exhaustion effect ${EXHAUSTION_ID} is persisted but not available in actor.effects`);
+  }
+
+  const ActiveEffect = getDocumentClass('ActiveEffect');
+  const template = await ActiveEffect.fromStatusEffect('exhaustion');
+  const data = foundry.utils.mergeObject(template.toObject(), {
+    _id: EXHAUSTION_ID,
+    'system.level': target
+  });
+
+  // Recheck after the asynchronous status template lookup.
+  effect = nativeCondition(actor);
+  if (effect) {
+    if ((levelOf(effect.system?.level) ?? 1) !== target) await effect.update({ 'system.level': target });
+    return;
+  }
+  try {
+    await actor.createEmbeddedDocuments('ActiveEffect', [data], { keepId: true });
+  } catch (error) {
+    // A competing native D&D5e update won the create race. Treat that as an
+    // already-existing condition, not an unhandled duplicate-ID exception.
+    if (!/already exists|duplicate|уже существует/i.test(String(error?.message ?? error))) throw error;
+    effect = await settleCanonical(actor);
+    if (!effect) throw error;
+    if ((levelOf(effect.system?.level) ?? 1) !== target) await effect.update({ 'system.level': target });
+  }
+}
+
 export async function setNativeExhaustion(actor, target) {
   if (!Number.isInteger(target) || target < 0 || target > 6) {
     throw new RangeError('Invalid exhaustion level');
   }
-  const actual = levelOf(actor?.system?.attributes?.exhaustion) ?? 0;
-  if (actual !== target) {
-    await actor.update({ 'system.attributes.exhaustion': target });
-  }
-  // An old version of LipatoS wrote imitation exhaustion effects with random
-  // IDs. Remove only real persisted non-canonical documents, and never remove
-  // the official fixed-ID condition owned by the game system.
+  await changeCanonicalLevel(actor, target);
+
+  // Legacy builds used random-ID imitation effects. Clear only real embedded
+  // documents, after the canonical condition is ready, to avoid removing it.
   for (const effect of obsoleteExhaustion(actor)) {
     if (!actor.effects?.get?.(effect.id)) continue;
     try { await effect.delete(); }
     catch (error) {
-      // The rest engine / another module can remove an obsolete effect first.
       if (actor.effects?.get?.(effect.id)) throw error;
     }
   }
