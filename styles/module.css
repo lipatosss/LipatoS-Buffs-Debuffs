@@ -1,0 +1,20 @@
+.dnd5e2.sheet.actor .lipatos-bd-parent { position: relative !important; }
+.dnd5e2.sheet.actor .lipatos-bd-bar {position:absolute;top:143px;left:14px;right:14px;height:32px;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:10px;overflow:visible;pointer-events:none;}
+.dnd5e2.sheet.actor .lipatos-bd-icons {display:flex;flex:1 1 auto;min-width:0;height:32px;gap:4px;flex-wrap:nowrap;align-items:center;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;pointer-events:auto;}
+.dnd5e2.sheet.actor .lipatos-bd-icon {position:relative;display:block;width:32px;height:32px;flex:0 0 32px;border:1px solid rgba(215,188,136,.65);border-radius:3px;background:#17171c;box-shadow:0 1px 3px #0009;cursor:help;outline-offset:1px;}
+.dnd5e2.sheet.actor .lipatos-bd-icon img {display:block;width:100%;height:100%;border:0;border-radius:2px;object-fit:cover;}
+.lipatos-bd-tooltip {display:block;pointer-events:none;position:fixed;z-index:100000;max-width:340px;min-width:220px;padding:9px 12px;background:#19181c;color:#e7dec7;border:1px solid #9a8056;border-radius:5px;box-shadow:0 4px 14px #000c;white-space:normal;font:13px/1.45 'Roboto Condensed',sans-serif;text-align:left;}
+.lipatos-bd-tooltip-title {font-weight:700;font-size:14px;margin-bottom:5px;color:#f5e6bd;}
+.lipatos-bd-tooltip-body {font-size:13px;white-space:pre-line;}
+.dnd5e2.sheet.actor .lipatos-bd-movement {pointer-events:auto;flex:none;display:flex;align-items:center;gap:7px;font-size:11px;color:#e8d7b0;background:rgba(15,14,17,.75);padding:2px 5px;border-radius:4px;}
+.dnd5e2.sheet.actor .lipatos-bd-dash {width:auto;min-height:26px;height:26px;margin:0;padding:1px 8px;color:#f4e4bf;border:1px solid #8b7552;border-radius:3px;background:#472c32;font-size:12px;}
+.dnd5e2.sheet.actor .lipatos-bd-dash:disabled {opacity:.48;}
+.lipatos-hunger-menu {position:fixed;z-index:100010;min-width:190px;padding:4px;border:1px solid #95734c;border-radius:5px;background:#221b17;box-shadow:0 5px 20px #000c;}
+.lipatos-hunger-menu button {display:block;width:100%;margin:0;padding:7px 10px;font:13px/1.3 'Roboto Condensed',sans-serif;color:#f3e4c7;background:transparent;border:0;text-align:left;cursor:pointer;}
+.lipatos-hunger-menu button:hover {background:#533b24;}
+.dnd5e2.sheet.actor .tab[data-tab='details'] filigree-box.skills li .passive,.dnd5e2.sheet.actor filigree-box.skills li .passive {display:none!important;}
+.dnd5e2.sheet.actor .sidebar .stats .top .pips[data-prop='system.attributes.exhaustion'] .pip {cursor:help;}
+.roll-configuration .dialog-buttons .lipatos-hunger-roll-choice,.dnd5e2 .dialog-buttons .lipatos-hunger-roll-choice,.dnd5e .dialog-buttons .lipatos-hunger-roll-choice {flex:1 1 0;display:flex;min-width:0;align-items:stretch;cursor:not-allowed;}
+.roll-configuration .dialog-buttons .lipatos-hunger-roll-choice button {width:100%;min-width:0;margin:0;}
+.roll-configuration .dialog-buttons button.lipatos-hunger-roll-disabled {opacity:.42;filter:grayscale(.75);cursor:not-allowed;pointer-events:none;}
+.roll-configuration .dialog-buttons.lipatos-hunger-roll-forced button[data-action='disadvantage'] {opacity:1;}
