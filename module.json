@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "Панель баффов и дебаффов; исправлено пропускание быстрого повторного долгого отдыха (голод 0 → 1 → 2) без 5-секундной задержки.",
-  "version": "0.6.9",
+  "description": "Устранён конфликт долгого отдыха D&D5e с истощением голода при повышении с 1 до 2; защита от исчезнувшего ActiveEffect.",
+  "version": "0.6.10",
   "authors": [
     {
       "name": "LipatoS",
@@ -35,5 +35,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.9/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.10/lipatos-buffs-debuffs.zip"
 }

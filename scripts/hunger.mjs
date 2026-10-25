@@ -39,8 +39,10 @@ function isExhaustion(effect) {
     || effect?.statuses?.includes?.('exhaustion') === true;
 }
 function nativeCondition(actor) {
-  // Only the system-managed, *persisted* condition counts as native Exhaustion.
-  // Prior versions created a random-ID imitation; it is NOT the D&D5e condition.
+  // Foundry's actor.effects can briefly hold a stale ActiveEffect while the
+  // native D&D5e long-rest handler deletes the persisted document. Never
+  // update a document whose ID is missing from the underlying source.
+  if (!persistedCanonical(actor)) return null;
   return actor?.effects?.get?.(EXHAUSTION_ID) ?? null;
 }
 function obsoleteExhaustion(actor) {
@@ -108,53 +110,66 @@ async function settleCanonical(actor, attempts=6, gap=50) {
   return nativeCondition(actor);
 }
 
+function missingEffect(error) {
+  return /does not exist|not found|doesn't exist|не существует|не найден/i
+    .test(String(error?.message ?? error));
+}
+function duplicateEffect(error) {
+  return /already exists|duplicate|уже существует/i
+    .test(String(error?.message ?? error));
+}
+
 async function changeCanonicalLevel(actor, target) {
-  let effect = nativeCondition(actor);
-  if (effect) {
-    const current = levelOf(effect.system?.level) ?? 1;
-    if (target === 0) await effect.delete();
-    else if (current !== target) await effect.update({ 'system.level': target });
-    return;
-  }
-  if (target === 0) return;
+  // Native D&D5e v6 performs its own exhaustion delta asynchronously during
+  // long rest. Other modules can also modify the condition. Re-read each
+  // operation and retry on transient delete/create races; never rely on a
+  // detached ActiveEffect instance left in actor.effects.
+  for (let retry = 0; retry < 5; retry++) {
+    const effect = nativeCondition(actor);
+    if (effect) {
+      const current = levelOf(effect.system?.level) ?? 1;
+      if (current === target) return;
+      try {
+        if (target === 0) await effect.delete();
+        else await effect.update({ 'system.level': target });
+        return;
+      } catch (error) {
+        if (!missingEffect(error)) throw error;
+        // Foundry removed this document between lookup and update.
+        await pause(90);
+        continue;
+      }
+    }
+    if (target === 0) return;
 
-  // An ActiveEffect creation in the core system can still be in flight after
-  // a long-rest hook. Never race it by immediately creating another one.
-  effect = await settleCanonical(actor);
-  if (effect) {
-    if ((levelOf(effect.system?.level) ?? 1) !== target) await effect.update({ 'system.level': target });
-    return;
-  }
+    // Do not try to create while the native system has a creation pending.
+    if (persistedCanonical(actor)) {
+      await pause(90);
+      continue;
+    }
+    if (retry === 0) {
+      await settleCanonical(actor, 3, 60);
+      if (nativeCondition(actor)) continue;
+    }
 
-  // A persisted ID that isn't yet present in the live collection indicates a
-  // document synchronization issue; fail safely rather than create a duplicate.
-  if (persistedCanonical(actor)) {
-    throw new Error(`Exhaustion effect ${EXHAUSTION_ID} is persisted but not available in actor.effects`);
+    const ActiveEffect = getDocumentClass('ActiveEffect');
+    const template = await ActiveEffect.fromStatusEffect('exhaustion');
+    const data = foundry.utils.mergeObject(template.toObject(), {
+      _id: EXHAUSTION_ID,
+      'system.level': target
+    });
+    if (nativeCondition(actor)) continue;
+    try {
+      await actor.createEmbeddedDocuments('ActiveEffect', [data], { keepId: true });
+      return;
+    } catch (error) {
+      if (!duplicateEffect(error) && !missingEffect(error)) throw error;
+      await pause(90);
+    }
   }
-
-  const ActiveEffect = getDocumentClass('ActiveEffect');
-  const template = await ActiveEffect.fromStatusEffect('exhaustion');
-  const data = foundry.utils.mergeObject(template.toObject(), {
-    _id: EXHAUSTION_ID,
-    'system.level': target
-  });
-
-  // Recheck after the asynchronous status template lookup.
-  effect = nativeCondition(actor);
-  if (effect) {
-    if ((levelOf(effect.system?.level) ?? 1) !== target) await effect.update({ 'system.level': target });
-    return;
-  }
-  try {
-    await actor.createEmbeddedDocuments('ActiveEffect', [data], { keepId: true });
-  } catch (error) {
-    // A competing native D&D5e update won the create race. Treat that as an
-    // already-existing condition, not an unhandled duplicate-ID exception.
-    if (!/already exists|duplicate|уже существует/i.test(String(error?.message ?? error))) throw error;
-    effect = await settleCanonical(actor);
-    if (!effect) throw error;
-    if ((levelOf(effect.system?.level) ?? 1) !== target) await effect.update({ 'system.level': target });
-  }
+  // A missing/stale effect is not success. Never increment the hunger counter
+  // when the mechanical exhaustion level failed to change.
+  throw new Error(`Unable to synchronize exhaustion condition for ${actor?.uuid ?? 'actor'} at level ${target}`);
 }
 
 export async function setNativeExhaustion(actor, target) {
@@ -333,6 +348,20 @@ export function decoratePips(root, actor) {
     pip.addEventListener('focusin', show); pip.addEventListener('focusout', hide);
   }
 }
+
+// D&D5e 6.0.6 normally *reduces* exhaustion by 1 during every long rest.
+// Starving characters must not lose their hunger exhaustion and then have our
+// restCompleted handler race that pending asynchronous deletion. Prevent this
+// native decrement BEFORE the rest bulk update is applied. Other rest recovery
+// data (HP, spells, resources) remains untouched.
+Hooks.on('dnd5e.preRestCompleted', (actor, result, config) => {
+  if (actor?.type !== 'character' || (config?.type !== 'long' && config?.restType !== 'long' && !result?.longRest)) return;
+  const hunger = getHunger(actor);
+  const fed = actor.getFlag?.(NS, 'ateSinceRest') === true;
+  if (hunger === null || fed || !result?.updateData) return;
+  delete result.updateData['system.attributes.exhaustion'];
+  if (result.updateData.system?.attributes) delete result.updateData.system.attributes.exhaustion;
+});
 
 Hooks.on('dnd5e.restCompleted', (actor, result, config) => {
   if (actor?.type !== 'character' || (config?.type !== 'long' && config?.restType !== 'long' && !result?.longRest)) return;
