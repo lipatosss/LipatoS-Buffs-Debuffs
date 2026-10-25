@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'lipatos-buffs-debuffs-v*.zip'
+  workflow_dispatch:
+
 permissions:
   contents: write
 
@@ -11,12 +13,12 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout module repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Extract uploaded module archive
-        id: archive
+      - name: Extract and validate module
+        id: module
         shell: bash
         run: |
           set -euo pipefail
@@ -26,31 +28,31 @@ jobs:
           version="${version%.zip}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
           mkdir -p .module-upload
-          unzip -q -o "$archive" -d .module-upload
+          unzip -q "$archive" -d .module-upload
           test -f .module-upload/lipatos-buffs-debuffs/module.json
           test -f .module-upload/lipatos-buffs-debuffs/scripts/main.mjs
+          test -f .module-upload/lipatos-buffs-debuffs/scripts/hunger.mjs
+          node -e "const m=require('./.module-upload/lipatos-buffs-debuffs/module.json'); const v=process.argv[1]; if(m.id!=='lipatos-buffs-debuffs'||m.version!==v||!m.manifest||!m.download) process.exit(1)" "$version"
           cp -a .module-upload/lipatos-buffs-debuffs/. .
           rm -rf .module-upload
-          node -e "const m=require('./module.json'); const ver=process.argv[1]; if(m.id!=='lipatos-buffs-debuffs'||m.version!==ver) process.exit(1)" "$version"
-      - name: Commit extracted module sources
+          cp "$archive" lipatos-buffs-debuffs.zip
+      - name: Commit sources
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add module.json scripts/ styles/ icons/ README-fix.txt
           if ! git diff --cached --quiet; then
-            git commit -m "Publish module source v${{ steps.archive.outputs.version }}"
+            git commit -m "Publish module source v${{ steps.module.outputs.version }}"
             git push origin HEAD:main
           fi
-      - name: Publish GitHub Release
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="v${{ steps.archive.outputs.version }}"
-          archive="${{ steps.archive.outputs.archive }}"
+          tag="v${{ steps.module.outputs.version }}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "$archive" --clobber
+            gh release upload "$tag" lipatos-buffs-debuffs.zip --clobber
           else
-            gh release create "$tag" "$archive" --target main --title "LipatoS Buffs Debuffs $tag" --generate-notes
+            gh release create "$tag" lipatos-buffs-debuffs.zip --target main --title "LipatoS Buffs Debuffs $tag" --generate-notes
           fi
