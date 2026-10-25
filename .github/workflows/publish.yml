@@ -1,0 +1,56 @@
+name: Publish LipatoS module
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lipatos-buffs-debuffs-v*.zip'
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout module repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract uploaded module archive
+        id: archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find . -maxdepth 1 -name 'lipatos-buffs-debuffs-v*.zip' -type f -printf '%f\n' | sort -V | tail -n 1)"
+          test -n "$archive"
+          version="${archive#lipatos-buffs-debuffs-v}"
+          version="${version%.zip}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          mkdir -p .module-upload
+          unzip -q -o "$archive" -d .module-upload
+          test -f .module-upload/lipatos-buffs-debuffs/module.json
+          test -f .module-upload/lipatos-buffs-debuffs/scripts/main.mjs
+          cp -a .module-upload/lipatos-buffs-debuffs/. .
+          rm -rf .module-upload
+          node -e "const m=require('./module.json'); const ver=process.argv[1]; if(m.id!=='lipatos-buffs-debuffs'||m.version!==ver) process.exit(1)" "$version"
+      - name: Commit extracted module sources
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add module.json scripts/ styles/ icons/ README-fix.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish module source v${{ steps.archive.outputs.version }}"
+            git push origin HEAD:main
+          fi
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ steps.archive.outputs.version }}"
+          archive="${{ steps.archive.outputs.archive }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$archive" --clobber
+          else
+            gh release create "$tag" "$archive" --target main --title "LipatoS Buffs Debuffs $tag" --generate-notes
+          fi
