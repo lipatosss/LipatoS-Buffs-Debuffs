@@ -1,4 +1,5 @@
 import {decoratePips,getHunger,STEP} from './hunger.mjs';
+import {keepBarAnchored} from './panel-position.mjs';
 // No roll guard: the D&D5e exhaustion condition already applies 2014 penalties.
 const ID='lipatos-buffs-debuffs', ENC='lipatos-encumbrance',SIZE=32;
 
@@ -81,30 +82,11 @@ function currentTurn(actor) {
   return canvas?.tokens?.controlled?.find(token => token.actor?.id === actor.id
     && token.document.combatant?.id === current.id)?.document ?? null;
 }
-function position(entry, bar) {
-  const root = entry.root;
-  if (!root?.isConnected || !bar) return;
-  const portrait = root.querySelector('.sidebar .portrait');
-  if (!portrait) { bar.style.top = '143px'; return; }
-  const rect = portrait.getBoundingClientRect(), parent = root.getBoundingClientRect();
-  if (rect.height && parent.height) {
-    const next = `${Math.round(rect.top - parent.top + root.scrollTop - SIZE - 2)}px`;
-    if (bar.style.top !== next) bar.style.top = next;
-  }
-}
+// The actor sheet's portrait can briefly move outside the viewport while an
+// effect is created/deleted and the sheet is re-rendered. Never derive our
+// panel position from its transient boundingClientRect or scrollTop.
+function position(entry, bar) { keepBarAnchored(bar); }
 const roots = new Map();
-const resize = new WeakMap();
-function trackSize(entry) {
-  if (typeof ResizeObserver === 'undefined') return;
-  const root = entry.root, portrait = root.querySelector('.sidebar .portrait');
-  const old = resize.get(root);
-  if (old?.portrait === portrait) return;
-  old?.observer.disconnect();
-  if (!portrait) return;
-  const observer = new ResizeObserver(() => position(entry, root.querySelector(':scope > .lipatos-bd-bar')));
-  observer.observe(portrait); // DO NOT observe root: our bar updates also change its size.
-  resize.set(root, { portrait, observer });
-}
 function disposePortals(actor) {
   for (const tooltip of document.querySelectorAll('.lipatos-bd-portal')) {
     if (tooltip.dataset.lipatosOwner === actor.uuid) tooltip.remove();
@@ -114,7 +96,6 @@ function render(entry) {
   if (!entry.host?.isConnected) return;
   const root = entry.host.querySelector('.window-content') ?? entry.host;
   if (root !== entry.root) {
-    resize.get(entry.root)?.observer.disconnect();
     entry.root = root;
     entry.fingerprint = null;
   }
@@ -163,7 +144,7 @@ function render(entry) {
   // Keep a stable, initially invisible bar even when the actor has no effects:
   // a refresh must never delete the panel just before a Foundry sheet redraw.
   bar.style.display = effects.length || hunger !== null || dashVisible ? 'flex' : 'none';
-  position(entry, bar); trackSize(entry);
+  position(entry, bar);
 }
 function schedule(entry) {
   if (!entry?.host?.isConnected || entry.pending) return;
@@ -203,7 +184,7 @@ function sheet(app, html) {
   if (!host) return;
   const existing = roots.get(actor.uuid);
   if (existing && existing.host !== host) {
-    existing.observer?.disconnect(); resize.get(existing.root)?.observer.disconnect();
+    existing.observer?.disconnect();
   }
   const entry = existing?.host === host ? existing :
     { actor, host, root: host.querySelector('.window-content') ?? host, fingerprint: null, pending: false };
@@ -215,7 +196,7 @@ function refresh(actor) {
   if (!actor) return;
   for (const [id, entry] of roots) {
     if (!entry.host?.isConnected) {
-      entry.observer?.disconnect(); resize.get(entry.root)?.observer.disconnect(); roots.delete(id);
+      entry.observer?.disconnect(); roots.delete(id);
     } else if (entry.actor.id === actor.id) {
       entry.actor = actor; schedule(entry);
     }
@@ -236,7 +217,7 @@ for (const event of ['updateCombat', 'updateCombatant']) {
 }
 Hooks.on('closeApplicationV2', app => {
   for (const [id, entry] of roots) if (app?.element === entry.host || app?.actor?.uuid === id) {
-    entry.observer?.disconnect(); resize.get(entry.root)?.observer.disconnect(); roots.delete(id);
+    entry.observer?.disconnect(); roots.delete(id);
   }
 });
 Hooks.once('ready', () => console.info('LipatoS — buffs: native exhaustion, stable actor panel active'));

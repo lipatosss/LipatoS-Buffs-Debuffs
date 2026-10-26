@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "Исправлено повышение истощения голода с передачей dnd5e.originalLevel для D&D5e 6.0.6 (ReferenceError Infinite).",
-  "version": "0.6.11",
+  "description": "Стабилизировано положение панели баффов и дебаффов при употреблении еды, снятии голода и обновлении эффектов; предотвращён выход панели за окно персонажа.",
+  "version": "0.6.12",
   "authors": [
     {
       "name": "LipatoS",
@@ -35,5 +35,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.11/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.12/lipatos-buffs-debuffs.zip"
 }

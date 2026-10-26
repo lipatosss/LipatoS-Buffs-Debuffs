@@ -31,6 +31,8 @@ jobs:
           set -euo pipefail
           node --check scripts/hunger.mjs
           node --check scripts/main.mjs
+          node --check scripts/panel-position.mjs
+          node --test tests/*.test.mjs
           node <<'NODE'
           const fs = require('fs');
           const manifest = JSON.parse(fs.readFileSync('module.json', 'utf8'));

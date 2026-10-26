@@ -1,4 +1,5 @@
 .dnd5e2.sheet.actor .lipatos-bd-parent { position: relative !important; }
+/* Layout anchor inside the actor's window-content. Do not overwrite top from JS. */
 .dnd5e2.sheet.actor .lipatos-bd-bar {position:absolute;top:143px;left:14px;right:14px;height:32px;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:10px;overflow:visible;pointer-events:none;}
 .dnd5e2.sheet.actor .lipatos-bd-icons {display:flex;flex:1 1 auto;min-width:0;height:32px;gap:4px;flex-wrap:nowrap;align-items:center;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;pointer-events:auto;}
 .dnd5e2.sheet.actor .lipatos-bd-icon {position:relative;display:block;width:32px;height:32px;flex:0 0 32px;border:1px solid rgba(215,188,136,.65);border-radius:3px;background:#17171c;box-shadow:0 1px 3px #0009;cursor:help;outline-offset:1px;}
