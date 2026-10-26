@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   publish:
+    # A deletion of obsolete ZIP files must not trigger another release.
+    if: github.event_name == 'workflow_dispatch' || contains(toJSON(github.event.head_commit.added), 'lipatos-buffs-debuffs-v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -37,10 +39,16 @@ jobs:
           cp -a .module-upload/lipatos-buffs-debuffs/. .
           rm -rf .module-upload
           cp "$archive" lipatos-buffs-debuffs.zip
-      - name: Commit sources
+      - name: Commit sources and prune older ZIP archives
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for old_zip in lipatos-buffs-debuffs-v*.zip; do
+            [ -e "$old_zip" ] || continue
+            if [ "$old_zip" != "lipatos-buffs-debuffs-v${{ steps.module.outputs.version }}.zip" ]; then
+              git rm -f -- "$old_zip"
+            fi
+          done
           git add module.json scripts/ styles/ icons/ README-fix.txt
           if ! git diff --cached --quiet; then
             git commit -m "Publish module source v${{ steps.module.outputs.version }}"
