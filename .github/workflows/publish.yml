@@ -1,66 +1,64 @@
 name: Publish LipatoS module
+
 on:
   push:
     branches: [main]
     paths:
-      - 'lipatos-buffs-debuffs-v*.zip'
+      - 'module.json'
+      - 'scripts/**'
+      - 'styles/**'
+      - 'icons/**'
+      - '.github/workflows/publish.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: lipatos-buffs-debuffs-release
+  cancel-in-progress: false
+
 jobs:
   publish:
-    # A deletion of obsolete ZIP files must not trigger another release.
-    if: github.event_name == 'workflow_dispatch' || contains(toJSON(github.event.head_commit.added), 'lipatos-buffs-debuffs-v')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout current module
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Extract and validate module
+      - name: Validate manifest and sources
         id: module
         shell: bash
         run: |
           set -euo pipefail
-          archive="$(find . -maxdepth 1 -name 'lipatos-buffs-debuffs-v*.zip' -type f -printf '%f\n' | sort -V | tail -n 1)"
-          test -n "$archive"
-          version="${archive#lipatos-buffs-debuffs-v}"
-          version="${version%.zip}"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          mkdir -p .module-upload
-          unzip -q "$archive" -d .module-upload
-          test -f .module-upload/lipatos-buffs-debuffs/module.json
-          test -f .module-upload/lipatos-buffs-debuffs/scripts/main.mjs
-          test -f .module-upload/lipatos-buffs-debuffs/scripts/hunger.mjs
-          node -e "const m=require('./.module-upload/lipatos-buffs-debuffs/module.json'); const v=process.argv[1]; if(m.id!=='lipatos-buffs-debuffs'||m.version!==v||!m.manifest||!m.download) process.exit(1)" "$version"
-          cp -a .module-upload/lipatos-buffs-debuffs/. .
-          rm -rf .module-upload
-          cp "$archive" lipatos-buffs-debuffs.zip
-      - name: Commit sources and prune older ZIP archives
+          node --check scripts/hunger.mjs
+          node --check scripts/main.mjs
+          node <<'NODE'
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('module.json', 'utf8'));
+          const version = manifest.version;
+          if (manifest.id !== 'lipatos-buffs-debuffs' || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid manifest id/version');
+          const expected = 'https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v' + version + '/lipatos-buffs-debuffs.zip';
+          if (manifest.download !== expected) throw new Error('Manifest download URL is inconsistent with version');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + version + '\n');
+          NODE
+      - name: Package Foundry module
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for old_zip in lipatos-buffs-debuffs-v*.zip; do
-            [ -e "$old_zip" ] || continue
-            if [ "$old_zip" != "lipatos-buffs-debuffs-v${{ steps.module.outputs.version }}.zip" ]; then
-              git rm -f -- "$old_zip"
-            fi
-          done
-          git add module.json scripts/ styles/ icons/ README-fix.txt
-          if ! git diff --cached --quiet; then
-            git commit -m "Publish module source v${{ steps.module.outputs.version }}"
-            git push origin HEAD:main
-          fi
-      - name: Create or update release
+          set -euo pipefail
+          mkdir -p dist/lipatos-buffs-debuffs
+          cp module.json dist/lipatos-buffs-debuffs/
+          cp -a scripts styles icons dist/lipatos-buffs-debuffs/
+          if [ -f README-fix.txt ]; then cp README-fix.txt dist/lipatos-buffs-debuffs/; fi
+          (cd dist && zip -qr lipatos-buffs-debuffs.zip lipatos-buffs-debuffs)
+          unzip -t dist/lipatos-buffs-debuffs.zip
+      - name: Publish installable GitHub release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           tag="v${{ steps.module.outputs.version }}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" lipatos-buffs-debuffs.zip --clobber
+            gh release upload "$tag" dist/lipatos-buffs-debuffs.zip --clobber
           else
-            gh release create "$tag" lipatos-buffs-debuffs.zip --target main --title "LipatoS Buffs Debuffs $tag" --generate-notes
+            gh release create "$tag" dist/lipatos-buffs-debuffs.zip --target main --title "LipatoS Buffs Debuffs $tag" --generate-notes
           fi

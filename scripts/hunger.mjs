@@ -131,7 +131,12 @@ async function changeCanonicalLevel(actor, target) {
       if (current === target) return;
       try {
         if (target === 0) await effect.delete();
-        else await effect.update({ 'system.level': target });
+        else await effect.update(
+          { 'system.level': target },
+          // D&D5e 6.0.6 condition.mjs:_onUpdate uses the undefined fallback
+          // `Infinite` unless originalLevel is explicitly provided.
+          { dnd5e: { originalLevel: current } }
+        );
         return;
       } catch (error) {
         if (!missingEffect(error)) throw error;
