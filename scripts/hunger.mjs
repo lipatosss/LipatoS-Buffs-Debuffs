@@ -3,6 +3,8 @@
  * Hunger flags track missed meals; the cosmetic level-0 warning has no changes.
  * Neither actor.attributes.exhaustion nor any roll formulas are overridden here.
  */
+import {advanceHunger, reduceHunger} from './hunger-logic.mjs';
+export {advanceHunger, reduceHunger};
 const NS = 'lipatos-buffs-debuffs';
 const CHANNEL = `module.${NS}`;
 const tasks = new Map();
@@ -24,8 +26,8 @@ export const STEP = Object.freeze([
   'Смерть от истощения.'
 ]);
 export const INFO = STEP;
-export const advanceHunger = (level, fed) => fed ? null : level === null ? 0 : Math.min(level + 1, 6);
-export const reduceHunger = level => level === null ? null : level === 0 ? null : level - 1;
+// Transition functions are pure and tested independently.
+
 
 function levelOf(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -224,7 +226,7 @@ export async function updateHunger(actor, action) {
     const fed = actor.getFlag?.(NS, 'ateSinceRest') === true;
     const next = action === 'eat' ? null
       : action === 'lower' ? reduceHunger(previous)
-      : advanceHunger(previous, fed);
+      : advanceHunger(previous);
     const currentNative = nativeLevel(actor);
     const oldBaseline = levelOf(actor.getFlag?.(NS, 'hungerBaseline'));
     let baseline = oldBaseline ?? (previous === null ? currentNative : Math.max(0, currentNative - previous));
