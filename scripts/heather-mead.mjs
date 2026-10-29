@@ -47,15 +47,11 @@ function heatherFearActive(actor) {
     && Number(state.fearUntil) > heatherTime());
 }
 
-function heatherDescription(rolled, applied, fearUntil) {
+function heatherDescription(rolled) {
   return "<p>После употребления вересковой медовухи персонаж получает:</p>"
-    + "<ul><li><strong>1к4 + 1 временных хитов.</strong> Последний бросок: <strong>"
-    + rolled + "</strong>. Временные хиты после применения: <strong>" + applied
-    + "</strong>. Они не складываются и сохраняются до долгого отдыха или потери.</li>"
-    + "<li><strong>Преимущество на спасброски против испуга</strong> на 1 час "
-    + "(до мирового времени " + fearUntil + " сек.).</li></ul>"
-    + "<p>Повторное употребление не суммирует преимущества или временные хиты, "
-    + "но обновляет час действия преимущества.</p>";
+    + "<ul><li><strong>" + rolled + " временных хитов.</strong> "
+    + "Они не складываются и сохраняются до долгого отдыха или потери.</li>"
+    + "<li>Преимущество на спасброски против испуга на 1 час.</li></ul>";
 }
 
 
@@ -166,7 +162,7 @@ async function heatherApply(item, actor) {
     const data = {
       name: HEATHER_NAME,
       img: item.img || "icons/svg/aura.svg",
-      description: heatherDescription(rolled, appliedTemp, until),
+      description: heatherDescription(rolled),
       origin: item.uuid,
       type: "base",
       disabled: false,

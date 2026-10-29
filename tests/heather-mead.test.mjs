@@ -130,6 +130,9 @@ test("D&D5e 6.x cloned activity: one successful use rolls, applies effect and re
   assert.equal(actor.system.attributes.hp.temp, 4);
   assert.equal(actor.effects.length, 1);
   assert.equal(actor.effects[0].name, "Вересковое тепло");
+  assert.match(actor.effects[0].description, /4 временных хитов\./);
+  assert.match(actor.effects[0].description, /Преимущество на спасброски против испуга на 1 час\./);
+  assert.doesNotMatch(actor.effects[0].description, /мирового времени|Последний бросок|Повторное употребление/);
   assert.equal(actor.effects[0].img, "original-mead.webp");
   assert.equal(actor.items.contents.length, 1, "consumed filled bottle is deleted");
   assert.equal(actor.items.contents[0].system.quantity, 1);
