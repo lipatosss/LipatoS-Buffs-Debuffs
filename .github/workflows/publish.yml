@@ -6,6 +6,7 @@ on:
     paths:
       - 'module.json'
       - 'scripts/**'
+      - 'tests/**'
       - 'styles/**'
       - 'icons/**'
       - '.github/workflows/publish.yml'
@@ -30,6 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/hunger.mjs
+          node --check scripts/heather-mead.mjs
           node --check scripts/main.mjs
           node --check scripts/panel-position.mjs
           node --test tests/*.test.mjs

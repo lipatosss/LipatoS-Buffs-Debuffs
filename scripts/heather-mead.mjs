@@ -8,6 +8,7 @@ const HEATHER_UNIQUE = "lipatos-aindor-unique-items";
 const HEATHER_SELF = import.meta.url.includes("/lipatos-buffs-debuffs/")
   ? HEATHER_BUFFS : HEATHER_UNIQUE;
 const HEATHER_IDENTIFIER = "vereskovaya-medovuha";
+const HEATHER_BOTTLE_IDENTIFIER = "pustaya-butylka";
 const HEATHER_NAME = "Вересковое тепло";
 const HEATHER_HOUR = 3600;
 const heatherPending = new Set();
@@ -55,6 +56,92 @@ function heatherDescription(rolled, applied, fearUntil) {
     + "(до мирового времени " + fearUntil + " сек.).</li></ul>"
     + "<p>Повторное употребление не суммирует преимущества или временные хиты, "
     + "но обновляет час действия преимущества.</p>";
+}
+
+
+// Every completed use returns exactly one empty bottle. Prefer the game's own
+// loot template so its picture, weight, price, description and custom flags match.
+function heatherIsBottle(item) {
+  return String(item?.system?.identifier ?? "").trim().toLowerCase() === HEATHER_BOTTLE_IDENTIFIER;
+}
+
+async function heatherBottleTemplate(actor) {
+  const sources = [
+    ...(game.items?.contents ?? []),
+    ...(actor.items?.contents ?? []),
+    ...(game.actors?.contents ?? []).flatMap(entry => entry.items?.contents ?? [])
+  ];
+  const match = sources.find(heatherIsBottle);
+  if (match) return match;
+
+  // The bottle may live in an Item compendium rather than the world directory.
+  for (const pack of game.packs ?? []) {
+    if (pack.documentName !== "Item" || pack.visible === false) continue;
+    try {
+      const index = await pack.getIndex({ fields: ["system.identifier"] });
+      const entry = [...index].find(heatherIsBottle);
+      if (!entry) continue;
+      const item = await pack.getDocument(entry._id ?? entry.id);
+      if (heatherIsBottle(item)) return item;
+    } catch (error) {
+      console.warn(HEATHER_SELF + " | Не удалось прочитать шаблон пустой бутылки", error);
+    }
+  }
+  return null;
+}
+
+async function heatherGiveBottle(actor) {
+  // Stack with the actor's existing bottle, not a second duplicate inventory row.
+  const owned = (actor.items?.contents ?? []).find(heatherIsBottle);
+  if (owned) {
+    await owned.update({
+      "system.quantity": Math.max(0, Number(owned.system?.quantity ?? 0)) + 1
+    });
+    return owned;
+  }
+
+  const source = await heatherBottleTemplate(actor);
+  let data;
+  if (source) {
+    data = source.toObject();
+    delete data._id; // A world/compendium UUID must not be reused as an actor Item ID.
+    delete data._stats;
+    data.system ??= {};
+    data.system.quantity = 1;
+  } else {
+    // Fallback when the world/compendiums have no such template at all.
+    // With a matching template the original custom icon and properties are used.
+    data = {
+      name: "Пустая бутылка",
+      type: "loot",
+      img: "icons/svg/item-bag.svg",
+      system: {
+        identifier: HEATHER_BOTTLE_IDENTIFIER,
+        quantity: 1,
+        weight: { value: 0.5, units: "lb" },
+        price: { value: 2, denomination: "sp" }
+      }
+    };
+  }
+  // Do not silently modify the source document; create only on the consumer.
+  const created = await actor.createEmbeddedDocuments("Item", [data]);
+  if (!source) ui.notifications?.warn?.(
+    "Предмет «pustaya-butylka» не найден в справочнике: выдана пустая бутылка с запасной иконкой. " +
+    "Добавьте оригинал в Предметы мира, чтобы использовалась ваша иконка."
+  );
+  return created?.[0] ?? null;
+}
+
+const heatherUseTasks = new Map();
+function heatherSerialUse(actor, action) {
+  const key = actor.uuid;
+  const previous = heatherUseTasks.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(action);
+  heatherUseTasks.set(key, next);
+  void next.finally(() => {
+    if (heatherUseTasks.get(key) === next) heatherUseTasks.delete(key);
+  }).catch(() => {});
+  return next;
 }
 
 /** Use the native Foundry Roll -> chat path; Dice So Nice animates such rolls. */
@@ -137,26 +224,35 @@ Hooks.on("dnd5e.preUseActivity", activity => {
 
 Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, results) => {
   if (!heatherOwnsWorkflow() || !heatherItem(activity?.item)) return;
+  const before = heatherBefore.get(activity);
+  heatherBefore.delete(activity); // Ignore duplicate post-use hook calls.
+  if (!before || results === false) return;
   const item = activity.item;
   const actor = activity.actor ?? item.actor ?? item.parent;
   if (actor?.documentName !== "Actor") return;
-  // This hook is fired AFTER the use has succeeded. Do not run on cancelled uses.
-  void (async () => {
-    const before = heatherBefore.get(activity);
-    heatherBefore.delete(activity);
-    if (results === false) return;
+  // Serialize inventory changes to avoid double-counting rapid uses.
+  void heatherSerialUse(actor, async () => {
     const currentQty = Number(item.system?.quantity ?? 0);
     const currentSpent = Number(item.system?.uses?.spent ?? 0);
-    const nativeSpent = before && (currentQty < before.quantity
-      || currentSpent > before.spent);
-    // If the activity was configured without consumption, spend one bottle.
-    // Native consumption always takes precedence; never double-charge it.
-    if (!nativeSpent && actor.items?.get(item.id) && currentQty > 0) {
+    const nativeSpent = currentQty < before.quantity
+      || currentSpent > before.spent
+      || !actor.items?.get(item.id);
+    // Item quantity may already be reduced by D&D5e's native consumption.
+    // Consume only if the activity did not, never consume an extra bottle.
+    if (!nativeSpent && currentQty > 0) {
       if (currentQty === 1) await item.delete();
       else await item.update({ "system.quantity": currentQty - 1 });
     }
-    await heatherApply(item, actor);
-  })().catch(error => {
+    // Give an empty bottle only after a successful completed drink/effect.
+    if (await heatherApply(item, actor)) {
+      try {
+        await heatherGiveBottle(actor);
+      } catch (error) {
+        console.error(HEATHER_SELF + " | Не удалось вернуть пустую бутылку", error);
+        ui.notifications?.error?.("Медовуха выпита, но пустая бутылка не добавлена (F12).");
+      }
+    }
+  }).catch(error => {
     console.error(HEATHER_SELF + " | Ошибка использования медовухи", error);
     ui.notifications?.error?.("Не удалось обработать использование вересковой медовухи (F12).");
   });
@@ -205,7 +301,8 @@ Hooks.once("ready", () => {
     isHeatherMead: heatherItem,
     getHeatherWarmth: heatherEffect,
     isHeatherFearAdvantageActive: heatherFearActive,
-    applyHeatherWarmth: heatherApply
+    applyHeatherWarmth: heatherApply,
+    giveHeatherEmptyBottle: heatherGiveBottle
   };
-  console.info(HEATHER_SELF + " | Вересковая медовуха: 1к4+1, временные хиты, испуг/1 час, долгий отдых");
+  console.info(HEATHER_SELF + " | Вересковая медовуха: 1к4+1, временные хиты, пустая бутылка, испуг/1 час, долгий отдых");
 });
