@@ -12,7 +12,7 @@ const HEATHER_BOTTLE_IDENTIFIER = "pustaya-butylka";
 const HEATHER_NAME = "Вересковое тепло";
 const HEATHER_HOUR = 3600;
 const heatherPending = new Set();
-const heatherBefore = new WeakMap();
+const heatherCompletedUses = new WeakSet();
 const heatherRestEvents = new WeakSet();
 
 function heatherOwnsWorkflow() {
@@ -211,50 +211,57 @@ async function heatherApply(item, actor) {
   }
 }
 
-// Take a pre-use snapshot. Some consumables have native item-quantity
-// consumption, others spend the item's limited uses instead.
-Hooks.on("dnd5e.preUseActivity", activity => {
-  if (!heatherOwnsWorkflow() || !heatherItem(activity?.item)) return;
-  const item = activity.item;
-  heatherBefore.set(activity, {
-    quantity: Number(item.system?.quantity ?? 0),
-    spent: Number(item.system?.uses?.spent ?? 0)
-  });
-});
-
+// D&D5e 6.x clones an Item and its Activity once before preUseActivity
+// and AGAIN after preparing scaling, so the pre/post Activity instances
+// are different objects. Never key a successful use on the pre hook instance.
+// postUseActivity fires only AFTER a successful completed activation.
 Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, results) => {
   if (!heatherOwnsWorkflow() || !heatherItem(activity?.item)) return;
-  const before = heatherBefore.get(activity);
-  heatherBefore.delete(activity); // Ignore duplicate post-use hook calls.
-  if (!before || results === false) return;
-  const item = activity.item;
-  const actor = activity.actor ?? item.actor ?? item.parent;
-  if (actor?.documentName !== "Actor") return;
-  // Serialize inventory changes to avoid double-counting rapid uses.
+  if (!results || typeof results !== "object") return;
+  // Each successful use has its own result object. Suppress only an identical
+  // hook result invoked twice; distinct real uses still grant distinct bottles.
+  if (heatherCompletedUses.has(results)) return;
+  heatherCompletedUses.add(results);
+
+  const sourceItem = activity.item; // The cloned Item is safe after consumption.
+  const actor = activity.actor ?? sourceItem.actor ?? sourceItem.parent;
+  if (actor?.documentName !== "Actor" || !actor.isOwner) return;
+
   void heatherSerialUse(actor, async () => {
-    const currentQty = Number(item.system?.quantity ?? 0);
-    const currentSpent = Number(item.system?.uses?.spent ?? 0);
-    const nativeSpent = currentQty < before.quantity
-      || currentSpent > before.spent
-      || !actor.items?.get(item.id);
-    // Item quantity may already be reduced by D&D5e's native consumption.
-    // Consume only if the activity did not, never consume an extra bottle.
-    if (!nativeSpent && currentQty > 0) {
-      if (currentQty === 1) await item.delete();
-      else await item.update({ "system.quantity": currentQty - 1 });
-    }
-    // Give an empty bottle only after a successful completed drink/effect.
-    if (await heatherApply(item, actor)) {
-      try {
-        await heatherGiveBottle(actor);
-      } catch (error) {
-        console.error(HEATHER_SELF + " | Не удалось вернуть пустую бутылку", error);
-        ui.notifications?.error?.("Медовуха выпита, но пустая бутылка не добавлена (F12).");
+    // Never spend a charge twice: D&D5e already handled activity consumption.
+    // In some 6.x cases a single-use consumable with autoDestroy remains in
+    // inventory after its final charge is spent. Remove only if needed.
+    const applied = await heatherApply(sourceItem, actor);
+    if (!applied) return;
+
+    const owned = actor.items?.get?.(sourceItem.id);
+    if (owned && heatherItem(owned)) {
+      const uses = owned.system?.uses ?? {};
+      const max = Number(uses.max ?? 0);
+      const spent = Number(uses.spent ?? 0);
+      const qty = Math.max(0, Number(owned.system?.quantity ?? 1));
+      if (uses.autoDestroy && Number.isFinite(max) && max > 0 && spent >= max) {
+        if (qty > 1) {
+          // One filled bottle is gone, another filled bottle can be used.
+          await owned.update({ "system.quantity": qty - 1, "system.uses.spent": 0 });
+        } else {
+          await owned.delete();
+        }
+      } else if (max <= 0) {
+        // A consumable without a configured limited-use pool: avoid granting
+        // endless buffs and empties if the activity has no native consumption.
+        // If D&D5e already removed the item, owned would be missing.
+        if (qty > 1) await owned.update({ "system.quantity": qty - 1 });
+        else await owned.delete();
       }
     }
+
+    // Exactly one empty bottle for every successful use, even if the
+    // original consumable was auto-destroyed by the dnd5e system.
+    await heatherGiveBottle(actor);
   }).catch(error => {
-    console.error(HEATHER_SELF + " | Ошибка использования медовухи", error);
-    ui.notifications?.error?.("Не удалось обработать использование вересковой медовухи (F12).");
+    console.error(HEATHER_SELF + " | Не удалось завершить использование медовухи", error);
+    ui.notifications?.error?.("Баф получен, но завершить расход/возврат бутылки не удалось (F12).");
   });
 });
 

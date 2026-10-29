@@ -103,30 +103,71 @@ test("bottle template preserves the exact image and price, without touching the 
   assert.equal(actor.items.contents.length, 1, "no duplicate row");
 });
 
-test("completed mead use creates one effect and one bottle, even after duplicate post-use hook", async () => {
+test("D&D5e 6.x cloned activity: one successful use rolls, applies effect and returns a bottle", async () => {
   const actor = makeActor();
   const mead = {
     id: "mead", uuid: "Actor.mead", actor,
     type: "consumable", img: "original-mead.webp",
-    system: { identifier: "vereskovaya-medovuha", quantity: 1, uses: { spent: 0 } },
+    // The system already spent the charge before postUseActivity runs.
+    system: { identifier: "vereskovaya-medovuha", quantity: 1,
+      uses: { max: 1, spent: 1, autoDestroy: true } },
     async delete() {
       actor.items.contents = actor.items.contents.filter(entry => entry !== mead);
     }
   };
   actor.items.contents.push(mead);
-  const activity = { actor, item: mead };
-  for (const fn of hooks.get("dnd5e.preUseActivity") ?? []) fn(activity);
-  for (const fn of hooks.get("dnd5e.postUseActivity") ?? []) fn(activity, {}, {});
-  for (const fn of hooks.get("dnd5e.postUseActivity") ?? []) fn(activity, {}, {});
+  const beforeActivity = { actor, item: { ...mead } };
+  const afterActivity = { actor, item: { ...mead } };
+  assert.notEqual(beforeActivity, afterActivity);
+  // Each user activity is cloned at least once by the 6.x system.
+  for (const fn of hooks.get("dnd5e.preUseActivity") ?? []) fn(beforeActivity);
+  const results = { updates: {} };
+  for (const fn of hooks.get("dnd5e.postUseActivity") ?? []) fn(afterActivity, {}, results);
+  for (const fn of hooks.get("dnd5e.postUseActivity") ?? []) fn(afterActivity, {}, results);
   await waitFor(() => actor.items.contents.some(item => item.system.identifier === "pustaya-butylka"));
-  assert.equal(rolls, 1, "one native roll");
+  assert.equal(rolls, 1, "one native roll even if the same results object repeats");
   assert.equal(actor.system.attributes.hp.temp, 4);
   assert.equal(actor.effects.length, 1);
   assert.equal(actor.effects[0].name, "Вересковое тепло");
   assert.equal(actor.effects[0].img, "original-mead.webp");
-  assert.equal(actor.items.contents.length, 1);
+  assert.equal(actor.items.contents.length, 1, "consumed filled bottle is deleted");
   assert.equal(actor.items.contents[0].system.quantity, 1);
   assert.equal(errors.length, 0, errors.join(", "));
+});
+
+test("two-bottle stack spends only one and resets limited uses for the next", async () => {
+  const actor = makeActor();
+  const mead = {
+    id: "stacked-mead", uuid: "Actor.stackedMead", actor,
+    type: "consumable", img: "original-mead.webp",
+    system: { identifier: "vereskovaya-medovuha", quantity: 2,
+      uses: { max: 1, spent: 1, autoDestroy: true } },
+    async update(changes) {
+      if (changes["system.quantity"] !== undefined) this.system.quantity = changes["system.quantity"];
+      if (changes["system.uses.spent"] !== undefined) this.system.uses.spent = changes["system.uses.spent"];
+    },
+    async delete() { throw Error("Should not delete whole stack"); }
+  };
+  actor.items.contents.push(mead);
+  for (const fn of hooks.get("dnd5e.postUseActivity") ?? [])
+    fn({ actor, item: { ...mead } }, {}, { updates: {} });
+  await waitFor(() => actor.items.contents.some(item => item.system.identifier === "pustaya-butylka"));
+  assert.equal(mead.system.quantity, 1);
+  assert.equal(mead.system.uses.spent, 0);
+  assert.equal(actor.items.contents.length, 2);
+});
+
+test("native auto-destruction before post-use still returns a bottle", async () => {
+  const actor = makeActor();
+  const source = { id: "native-removed", uuid: "Actor.nativeRemoved", actor,
+    type: "consumable", img: "original-mead.webp",
+    system: { identifier: "vereskovaya-medovuha", quantity: 1, uses: { spent: 1, max: 1, autoDestroy: true } } };
+  // The dnd5e system has already deleted this item, but the activity clone survives.
+  for (const fn of hooks.get("dnd5e.postUseActivity") ?? [])
+    fn({ actor, item: source }, {}, { updates: {} });
+  await waitFor(() => actor.items.contents.some(item => item.system.identifier === "pustaya-butylka"));
+  assert.equal(actor.items.contents.length, 1);
+  assert.equal(actor.effects.length, 1);
 });
 
 test("cancelled activity does not return a bottle", async () => {
