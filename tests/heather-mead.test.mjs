@@ -30,7 +30,8 @@ globalThis.game = {
   items: { contents: [bottleTemplate] },
   actors: { contents: [] },
   packs: [],
-  time: { worldTime: 4500 }
+  time: { worldTime: 4500 },
+  user: { id: "tester" }
 };
 globalThis.ui = { notifications: {
   warn(message) { warnings.push(message); },
@@ -181,4 +182,70 @@ test("cancelled activity does not return a bottle", async () => {
   assert.equal(actor.items.contents.length, 1);
   assert.equal(actor.effects.length, 0);
   assert.equal(warnings.length, 0);
+});
+
+
+test("resource update hook applies mead even when dnd5e.postUseActivity is absent", async () => {
+  const actor = makeActor();
+  const beforeRolls = rolls;
+  const mead = {
+    id: "resource-mead", uuid: "Actor.resource", actor,
+    parent: actor, type: "consumable", img: "original-mead.webp",
+    system: { identifier: "vereskovaya-medovuha", quantity: 1,
+      uses: { max: 1, spent: 1, autoDestroy: true } },
+    async delete() {
+      actor.items.contents = actor.items.contents.filter(entry => entry !== mead);
+      for (const fn of hooks.get("deleteItem") ?? [])
+        fn(mead, {}, "tester");
+    }
+  };
+  actor.items.contents.push(mead);
+  for (const fn of hooks.get("updateItem") ?? [])
+    fn(mead, { system: { uses: { spent: 1 } } }, {}, "tester");
+  await waitFor(() => actor.items.contents.some(entry =>
+    entry.system.identifier === "pustaya-butylka"));
+  assert.equal(rolls, beforeRolls + 1);
+  assert.equal(actor.effects.length, 1);
+  assert.equal(actor.items.contents.length, 1);
+  assert.equal(actor.items.contents[0].system.identifier, "pustaya-butylka");
+});
+
+test("a late postUseActivity after resource update cannot double the bottle", async () => {
+  const actor = makeActor();
+  const mead = {
+    id: "double-mead", uuid: "Actor.doubleMead", actor,
+    parent: actor, type: "consumable", img: "original-mead.webp",
+    system: { identifier: "vereskovaya-medovuha", quantity: 1,
+      uses: { max: 1, spent: 1, autoDestroy: true } },
+    async delete() {
+      actor.items.contents = actor.items.contents.filter(entry => entry !== mead);
+    }
+  };
+  actor.items.contents.push(mead);
+  for (const fn of hooks.get("updateItem") ?? [])
+    fn(mead, { "system.uses.spent": 1 }, {}, "tester");
+  await waitFor(() => actor.items.contents.some(entry =>
+    entry.system.identifier === "pustaya-butylka"));
+  for (const fn of hooks.get("dnd5e.postUseActivity") ?? [])
+    fn({ actor, item: mead }, {}, { updates: {} });
+  await new Promise(resolve => setTimeout(resolve, 15));
+  assert.equal(actor.items.contents.length, 1);
+  assert.equal(actor.items.contents[0].system.quantity, 1);
+  assert.equal(actor.effects.length, 1);
+});
+
+test("resetting a charge and editing unrelated item data never grants bottle", async () => {
+  const actor = makeActor();
+  const mead = {
+    id: "reset-mead", parent: actor, type: "consumable",
+    system: { identifier: "vereskovaya-medovuha", quantity: 1,
+      uses: { spent: 0, max: 1, autoDestroy: true } }
+  };
+  actor.items.contents.push(mead);
+  for (const fn of hooks.get("updateItem") ?? []) {
+    fn(mead, { "system.uses.spent": 0 }, {}, "tester");
+    fn(mead, { "system.quantity": 5 }, {}, "tester");
+  }
+  assert.equal(actor.effects.length, 0);
+  assert.equal(actor.items.contents.length, 1);
 });

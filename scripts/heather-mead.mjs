@@ -211,58 +211,125 @@ async function heatherApply(item, actor) {
   }
 }
 
-// D&D5e 6.x clones an Item and its Activity once before preUseActivity
-// and AGAIN after preparing scaling, so the pre/post Activity instances
-// are different objects. Never key a successful use on the pre hook instance.
-// postUseActivity fires only AFTER a successful completed activation.
-Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, results) => {
+// D&D5e 6.x mutates the *embedded Item* when spending a charge.
+// This document update is the primary trigger; it also catches consumption
+// that never reaches the activity completion hook.
+const heatherUpdateCounters = new Map();
+const heatherUsePrimed = new Map();
+
+function heatherKey(actor, item) {
+  return actor?.uuid && item?.id ? actor.uuid + ":" + item.id : null;
+}
+
+function heatherActor(activity) {
+  return activity?.actor ?? activity?.item?.actor
+    ?? (activity?.item?.parent?.documentName === "Actor" ? activity.item.parent : null);
+}
+
+function heatherPrime(activity) {
   if (!heatherOwnsWorkflow() || !heatherItem(activity?.item)) return;
-  if (!results || typeof results !== "object") return;
-  // Each successful use has its own result object. Suppress only an identical
-  // hook result invoked twice; distinct real uses still grant distinct bottles.
-  if (heatherCompletedUses.has(results)) return;
-  heatherCompletedUses.add(results);
+  const key = heatherKey(heatherActor(activity), activity.item);
+  if (key) heatherUsePrimed.set(key, Date.now());
+}
 
-  const sourceItem = activity.item; // The cloned Item is safe after consumption.
-  const actor = activity.actor ?? sourceItem.actor ?? sourceItem.parent;
-  if (actor?.documentName !== "Actor" || !actor.isOwner) return;
+function heatherClaim(key, from) {
+  if (!key) return false;
+  const state = heatherUpdateCounters.get(key) ?? { updates: 0, posts: 0 };
+  if (from === "update") {
+    state.updates++;
+    heatherUpdateCounters.set(key, state);
+    return true;
+  }
+  // One postUseActivity hook corresponds to one actual use. If an item update
+  // already handled the use, postUse must not grant another bottle.
+  if (state.posts < state.updates) {
+    state.posts++;
+    heatherUpdateCounters.set(key, state);
+    return false;
+  }
+  state.posts++;
+  heatherUpdateCounters.set(key, state);
+  return true;
+}
 
+function heatherRun(actor, sourceItem, trigger) {
+  if (!heatherOwnsWorkflow() || !heatherItem(sourceItem) || actor?.documentName !== "Actor") return;
+  if (!actor.isOwner) return;
   void heatherSerialUse(actor, async () => {
-    // Never spend a charge twice: D&D5e already handled activity consumption.
-    // In some 6.x cases a single-use consumable with autoDestroy remains in
-    // inventory after its final charge is spent. Remove only if needed.
+    console.info(HEATHER_SELF + " | Вересковая медовуха: событие " + trigger, {
+      actor: actor.uuid, item: sourceItem.id
+    });
     const applied = await heatherApply(sourceItem, actor);
     if (!applied) return;
 
+    // Preserve D&D5e's own item-use consumption. Do not spend it again!
     const owned = actor.items?.get?.(sourceItem.id);
     if (owned && heatherItem(owned)) {
       const uses = owned.system?.uses ?? {};
-      const max = Number(uses.max ?? 0);
       const spent = Number(uses.spent ?? 0);
-      const qty = Math.max(0, Number(owned.system?.quantity ?? 1));
-      if (uses.autoDestroy && Number.isFinite(max) && max > 0 && spent >= max) {
+      const max = Number(uses.max ?? 0);
+      const qty = Number(owned.system?.quantity ?? 1);
+      if (uses.autoDestroy && max > 0 && spent >= max) {
         if (qty > 1) {
-          // One filled bottle is gone, another filled bottle can be used.
           await owned.update({ "system.quantity": qty - 1, "system.uses.spent": 0 });
         } else {
           await owned.delete();
         }
-      } else if (max <= 0) {
-        // A consumable without a configured limited-use pool: avoid granting
-        // endless buffs and empties if the activity has no native consumption.
-        // If D&D5e already removed the item, owned would be missing.
-        if (qty > 1) await owned.update({ "system.quantity": qty - 1 });
-        else await owned.delete();
       }
     }
-
-    // Exactly one empty bottle for every successful use, even if the
-    // original consumable was auto-destroyed by the dnd5e system.
     await heatherGiveBottle(actor);
   }).catch(error => {
-    console.error(HEATHER_SELF + " | Не удалось завершить использование медовухи", error);
-    ui.notifications?.error?.("Баф получен, но завершить расход/возврат бутылки не удалось (F12).");
+    console.error(HEATHER_SELF + " | Медовуха: ошибка применения/возврата бутылки", error);
+    ui.notifications?.error?.("Вересковая медовуха: ошибка обработки, подробности в F12.");
   });
+}
+
+Hooks.on("dnd5e.preUseActivity", heatherPrime);
+Hooks.on("dnd5e.preActivityConsumption", heatherPrime);
+
+Hooks.on("updateItem", (item, changed, options, userId) => {
+  if (!heatherOwnsWorkflow() || !heatherItem(item)) return;
+  const actor = item.parent;
+  if (actor?.documentName !== "Actor") return;
+  // Only the client which caused the update can grant the reward.
+  if (userId && game.user?.id !== userId) return;
+  const spentValue = changed?.["system.uses.spent"] ?? changed?.system?.uses?.spent;
+  const spentNow = Number(item.system?.uses?.spent ?? 0);
+  const usedCharge = spentValue !== undefined && Number(spentValue) > 0
+    && spentNow > 0;
+  const reducedQuantity = false; // No reliable pre-value in updateItem; postUse covers quantity.
+  // The screenshot's consumption type "Использование предмета" increments spent.
+  // Quantity-only consumables are handled too when we can confirm consumption.
+  if (!usedCharge && !reducedQuantity) return;
+  const key = heatherKey(actor, item);
+  if (heatherClaim(key, "update")) heatherRun(actor, item, "updateItem");
+});
+
+Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, results) => {
+  if (!heatherOwnsWorkflow() || !heatherItem(activity?.item)) return;
+  if (!results || typeof results !== "object") return;
+  if (heatherCompletedUses.has(results)) return;
+  heatherCompletedUses.add(results);
+  const actor = heatherActor(activity);
+  const key = heatherKey(actor, activity.item);
+  if (heatherClaim(key, "post")) heatherRun(actor, activity.item, "postUseActivity");
+});
+
+// Some versions delete the whole item at final consumption rather than issue
+// updateItem. Only treat deletion as drinking if an Activity was primed shortly
+// before it; manual inventory deletion must not give a bottle.
+Hooks.on("deleteItem", (item, options, userId) => {
+  if (!heatherOwnsWorkflow() || !heatherItem(item)) return;
+  const actor = item.parent;
+  const key = heatherKey(actor, item);
+  if (!key || (userId && game.user?.id !== userId)) return;
+  const primed = heatherUsePrimed.get(key);
+  if (primed === undefined || Date.now() - primed > 15000) return;
+  heatherUsePrimed.delete(key);
+  // If updateItem already applied this use, do not replay it on deletion.
+  const counts = heatherUpdateCounters.get(key);
+  if ((counts?.updates ?? 0) > (counts?.posts ?? 0)) return;
+  if (heatherClaim(key, "update")) heatherRun(actor, item, "deleteItem");
 });
 
 // Only grant advantage when the save's explicit source or label identifies
