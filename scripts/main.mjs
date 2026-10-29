@@ -1,3 +1,4 @@
+import './heather-mead.mjs';
 import {decoratePips,getHunger,STEP} from './hunger.mjs';
 import {keepBarAnchored} from './panel-position.mjs';
 // No roll guard: the D&D5e exhaustion condition already applies 2014 penalties.
