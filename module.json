@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "Добавлены восемь блюд Айндора с уникальными иконками WebP, расходом одного заряда, баффами до долгого отдыха и взаимоисключением с вересковой медовухой; автоматическое обновление иконок существующих блюд.",
-  "version": "0.6.19",
+  "description": "Исправлена автоматическая активация баффов восьми блюд после расходования заряда в Foundry V14/dnd5e 6.0.6; добавлен надёжный postActivityConsumption, защита от двойного применения и восстановление активности Съесть у существующих предметов.",
+  "version": "0.6.20",
   "authors": [
     {
       "name": "LipatoS",
@@ -35,5 +35,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.19/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.20/lipatos-buffs-debuffs.zip"
 }
