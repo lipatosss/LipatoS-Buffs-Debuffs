@@ -1,3 +1,4 @@
+import { replaceMealEffects } from './meal-shared.mjs';
 /**
  * Heather mead for Foundry V14 / dnd5e 6.x.
  * This file deliberately ships in both LipatoS modules. Buffs/Debuffs
@@ -154,6 +155,7 @@ async function heatherApply(item, actor) {
     });
     const rolled = Number(roll.total);
     if (!Number.isFinite(rolled)) throw new Error("Некорректный результат 1к4 + 1");
+    await replaceMealEffects(actor);
     const previousTemp = Number(actor.system?.attributes?.hp?.temp ?? 0);
     const appliedTemp = Math.max(previousTemp, rolled);
     const now = heatherTime();

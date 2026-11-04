@@ -33,12 +33,26 @@ jobs:
           node --check scripts/hunger.mjs
           node --check scripts/heather-mead.mjs
           node --check scripts/main.mjs
+          node --check scripts/food.mjs
+          node --check scripts/meal-shared.mjs
           node --check scripts/panel-position.mjs
           node --test tests/*.test.mjs
           node <<'NODE'
           const fs = require('fs');
           const manifest = JSON.parse(fs.readFileSync('module.json', 'utf8'));
           const version = manifest.version;
+          const iconIds = [
+            'zharkoe-iz-dikogo-kabana', 'uha-tumannogo-berega',
+            'gribnoe-ragu-travnika', 'pryanyy-krolik-ohotnika',
+            'pastushiy-pirog-silacha', 'medovye-oreshki-strannika',
+            'chernichnyy-tart-teney', 'lunnyy-tvorozhnyy-puding'
+          ];
+          for (const id of iconIds) {
+            const icon = fs.readFileSync('icons/foods/' + id + '.webp');
+            if (icon.length < 1000 || icon.toString('ascii',0,4) !== 'RIFF'
+                || icon.toString('ascii',8,12) !== 'WEBP')
+              throw new Error('Invalid food icon: ' + id);
+          }
           if (manifest.id !== 'lipatos-buffs-debuffs' || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid manifest id/version');
           const expected = 'https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v' + version + '/lipatos-buffs-debuffs.zip';
           if (manifest.download !== expected) throw new Error('Manifest download URL is inconsistent with version');

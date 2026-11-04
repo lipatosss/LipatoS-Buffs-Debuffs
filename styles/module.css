@@ -19,3 +19,5 @@
 .roll-configuration .dialog-buttons .lipatos-hunger-roll-choice button {width:100%;min-width:0;margin:0;}
 .roll-configuration .dialog-buttons button.lipatos-hunger-roll-disabled {opacity:.42;filter:grayscale(.75);cursor:not-allowed;pointer-events:none;}
 .roll-configuration .dialog-buttons.lipatos-hunger-roll-forced button[data-action='disadvantage'] {opacity:1;}
+
+.dnd5e2.sheet.actor .lipatos-bd-icon.lipatos-food-action { cursor: pointer; outline: 1px solid rgba(134,190,129,.9); }
