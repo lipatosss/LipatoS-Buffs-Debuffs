@@ -94,7 +94,7 @@ test("Mastercrafted output is repaired, consumed and automatically buffs actor",
   assert.ok(fish.system.activities.useFood000000001);
   assert.equal(fish.system.activities.useFood000000001.name, "Использовать");
   assert.ok(!fish.system.activities.eatMeal000000001);
-  assert.ok(fish.img.endsWith("uha-tumannogo-berega.webp"));
+  assert.equal(fish.img, "icons/svg/item-bag.svg", "Crafted food uses the standard placeholder");
 
   // Some sheet modules report postUse without sending a native charge update.
   const fishUse = { item: fish, actor }, usage = {};
@@ -106,8 +106,10 @@ test("Mastercrafted output is repaired, consumed and automatically buffs actor",
   assert.equal(actor.items.has(fish.id), false, "Charge was spent, portion removed");
 
   const nuts = crafted("Медовые орешки странника");
+  nuts.img = "worlds/aindor/art/my-nuts.webp";
   fire("createItem", nuts, {}, "gm");
   await settle();
+  assert.equal(nuts.img, "worlds/aindor/art/my-nuts.webp", "Personal icon must never be overwritten");
   const nutsUse = { item: nuts, actor }, usage2 = {};
   fire("dnd5e.preUseActivity", nutsUse, usage2);
   fire("dnd5e.postActivityConsumption", nutsUse, usage2, {}, {});

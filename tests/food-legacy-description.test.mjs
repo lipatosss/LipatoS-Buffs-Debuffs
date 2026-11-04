@@ -6,7 +6,7 @@ test("migration removes old replacement text from active buffs and updates exist
   const oldText = "Любая другая еда или вересковая медовуха заменяет этот бафф.";
   const roast = {
     name: "Жаркое из дикого кабана", type: "consumable",
-    img: "icons/svg/item-bag.svg", flags: {},
+    img: "modules/lipatos-buffs-debuffs/icons/foods/zharkoe-iz-dikogo-kabana.webp", flags: {},
     system: {
       identifier: "zharkoe-iz-dikogo-kabana",
       type: { value: "food" }, uses: { max: 1, autoDestroy: true, prompt: false },
@@ -28,8 +28,21 @@ test("migration removes old replacement text from active buffs and updates exist
       }
     }
   };
+  const customBeer = {
+    ...roast, name: "Пастуший эль",
+    img: "worlds/aindor/my-icons/pastushiy-el.webp",
+    system: { ...structuredClone(roast.system), identifier: "pastushiy-el",
+      description: { value: "Пастуший эль" } }
+  };
+  const customFood = {
+    ...roast, name: "Уха туманного берега",
+    img: "worlds/aindor/my-icons/uha.webp",
+    system: { ...structuredClone(roast.system), identifier: "uha-tumannogo-berega",
+      description: { value: "Уха" } }
+  };
   const active = {
     id: "old-buff",
+    img: "modules/lipatos-buffs-debuffs/icons/foods/zharkoe-iz-dikogo-kabana.webp",
     flags: { "lipatos-buffs-debuffs": { foodBuff: true, foodIdentifier: "zharkoe-iz-dikogo-kabana",
       grantedTemporaryHp: 8, displayedTemporaryHp: 8 } },
     description: "<p>Действует до завершения следующего долгого отдыха. " + oldText + "</p>",
@@ -39,7 +52,7 @@ test("migration removes old replacement text from active buffs and updates exist
   globalThis.game = {
     user: { id: "gm", isGM: true },
     users: [{ id: "gm", isGM: true, active: true }],
-    items: { contents: [roast] },
+    items: { contents: [roast, customBeer, customFood] },
     actors: { contents: [actor] },
     modules: { get() { return { api: {} }; } }
   };
@@ -47,6 +60,14 @@ test("migration removes old replacement text from active buffs and updates exist
   await import("../scripts/food.mjs");
   const { installFoodItems } = await import("../scripts/food.mjs");
   await installFoodItems();
+  assert.equal(roast.img, "icons/svg/item-bag.svg", "Old bundled icon migrates to placeholder");
+  assert.equal(active.img, "icons/svg/item-bag.svg", "Old active buff icon migrates");
+  assert.equal(customBeer.img, "worlds/aindor/my-icons/pastushiy-el.webp",
+    "Hand-selected beer image must be preserved");
+  assert.equal(customFood.img, "worlds/aindor/my-icons/uha.webp",
+    "Hand-selected food image must be preserved");
+  await installFoodItems();
+  assert.equal(customBeer.img, "worlds/aindor/my-icons/pastushiy-el.webp");
   assert.match(roast.system.description.value, /1к4 \+ 2 временных хитов/);
   assert.doesNotMatch(roast.system.description.value, /8 временных хитов/);
   assert.deepEqual(Object.keys(roast.system.activities), ["existing"]);
