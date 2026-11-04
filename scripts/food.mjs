@@ -179,6 +179,15 @@ async function repairFoodItem(item) {
   const patch = {};
   const image = foodIcon(food);
   if (item.img !== image) patch.img = image;
+  // Existing crafted and world items must also stop displaying the old fixed
+  // "8 temporary HP" text; preserve all unrelated custom description fields.
+  const oldDescription = String(item.system?.description?.value ?? "");
+  if (food.tempHpFormula && /8\s+(?:временных|бонусных)\s+хитов/i.test(oldDescription)) {
+    patch["system.description.value"] = oldDescription.replace(
+      /8\s+(?:временных|бонусных)\s+хитов/gi,
+      "1к4 + 2 временных хитов"
+    );
+  }
   if (String(item.system?.identifier ?? "") !== food.id)
     patch["system.identifier"] = food.id;
   if (item.system?.type?.value !== "food")
