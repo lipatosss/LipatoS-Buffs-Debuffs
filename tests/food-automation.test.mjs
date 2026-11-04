@@ -119,7 +119,11 @@ test("Foundry food hooks apply real actor effects exactly once, replace buffs an
   actor.items.set(tart.id, tart);
   const cancelled = { item: tart, actor }, noConsume = {};
   fire("dnd5e.preUseActivity", cancelled, noConsume);
-  fire("dnd5e.postUseActivity", cancelled, noConsume, {});
+  // In dnd5e, cancelling the use dialog aborts before postUseActivity.
   await settle();
   assert.equal(actor.effects.length, 0, "Cancelled/unsuccessful use must not apply buffs");
+  // An integration that explicitly signals a cancelled postUse is also ignored.
+  fire("dnd5e.postUseActivity", cancelled, noConsume, { cancelled: true });
+  await settle();
+  assert.equal(actor.effects.length, 0, "Cancelled activity result must not apply buffs");
 });
