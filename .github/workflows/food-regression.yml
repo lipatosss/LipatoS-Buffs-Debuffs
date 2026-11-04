@@ -1,0 +1,30 @@
+name: Food consumption regression tests
+on:
+  push:
+    branches: [fix/food-use-deletion-v0-6-23, main]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/food-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/food.mjs
+          node --check scripts/food-use-tracker.mjs
+          node --check scripts/meal-shared.mjs
+      - name: Run all tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/*.test.mjs
