@@ -12,6 +12,13 @@ test("Foundry food hooks apply real actor effects exactly once, replace buffs an
     once: (event, callback) => once.set(event, callback)
   };
   const mod = { api: {} };
+  const rolls = [], chatMessages = [];
+  globalThis.Roll = class {
+    constructor(formula) { this.formula = formula; rolls.push(formula); }
+    async evaluate() { this.total = 5; return this; }
+    async toMessage(message) { chatMessages.push(message); }
+  };
+  globalThis.ChatMessage = { getSpeaker: ({ actor }) => ({ alias: actor.uuid }) };
   const docs = [];
   let sequence = 0;
   globalThis.game = {
@@ -96,7 +103,12 @@ test("Foundry food hooks apply real actor effects exactly once, replace buffs an
   await settle();
   assert.equal(actor.effects.length, 1);
   assert.equal(actor.effects[0].name, "Крепкая сытость");
-  assert.equal(actor.system.attributes.hp.temp, 8);
+  assert.equal(actor.system.attributes.hp.temp, 5);
+  assert.deepEqual(rolls, ["1d4 + 2"]);
+  assert.equal(chatMessages.length, 1);
+  assert.equal(actor.effects[0].flags["lipatos-buffs-debuffs"].grantedTemporaryHp, 5);
+  assert.match(actor.effects[0].description, /1к4 \+ 2 временных хитов/);
+  assert.doesNotMatch(actor.effects[0].description, /Любая другая еда|медовуха заменяет/);
 
   const nuts = makeOwned("medovye-oreshki-strannika");
   actor.items.set(nuts.id, nuts);
