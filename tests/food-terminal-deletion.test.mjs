@@ -12,6 +12,12 @@ test("all eight foods apply one buff when Use destroys the last portion with NO 
   };
   let seq = 0;
   const mod = { api: {} };
+  globalThis.Roll = class {
+    constructor(formula) { assert.equal(formula, "1d4 + 2"); }
+    async evaluate() { this.total = 6; return this; }
+    async toMessage() {}
+  };
+  globalThis.ChatMessage = { getSpeaker: () => ({ alias: "Test actor" }) };
   globalThis.game = {
     user: { id: "gm", isGM: true },
     users: [{ id: "gm", isGM: true, active: true }],
