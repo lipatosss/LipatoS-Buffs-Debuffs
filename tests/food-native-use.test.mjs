@@ -14,6 +14,12 @@ test("all eight meals apply buffs from the native Item charge update without act
   };
   const fire = (name, ...args) => { for (const cb of events.get(name) ?? []) cb(...args); };
   const module = { api: {} };
+  globalThis.Roll = class {
+    constructor(formula) { assert.equal(formula, "1d4 + 2"); }
+    async evaluate() { this.total = 4; return this; }
+    async toMessage() {}
+  };
+  globalThis.ChatMessage = { getSpeaker: () => ({ alias: "Native user" }) };
   let next = 0;
   const worldItems = [];
   globalThis.game = {
