@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "У жаркого из дикого кабана временные хиты определяются броском 1d4+2 с сообщением в чат. Убрана лишняя фраза о замене баффов из описаний всех блюд; прежние описания автоматически исправляются.",
-  "version": "0.6.24",
+  "description": "8 блюд Айндора, 5 сортов крафтового пива с +2 к навыкам, автоматические баффы до долгого отдыха, возврат пустых бутылок и система голода.",
+  "version": "0.6.25",
   "authors": [
     {
       "name": "LipatoS",
@@ -35,5 +35,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.24/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.25/lipatos-buffs-debuffs.zip"
 }
