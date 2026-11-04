@@ -265,6 +265,15 @@ Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, result) => {
   if (completed.has(result)) return;
   completed.add(result);
   const actor = ownActor(activity), key = foodKey(actor, activity.item);
+  const before = primed.get(key);
+  const owned = actor?.items?.get?.(activity.item.id);
+  const usedCharge = Number(owned?.system?.uses?.spent ?? 0) > 0;
+  const usedPortion = before && owned
+    && Number(owned.system?.quantity ?? 1) < before.quantity;
+  const consumedEntirely = actor?.items && !owned;
+  // Do not award a free buff when an activity finished without consuming food.
+  // If a charge is spent later, the updateItem hook remains the primary path.
+  if (!usedCharge && !usedPortion && !consumedEntirely) return;
   primed.delete(key);
   if (claim(key, "post")) runFood(actor, activity.item, "postUseActivity");
 });
