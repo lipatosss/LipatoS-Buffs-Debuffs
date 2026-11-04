@@ -53,7 +53,10 @@ test("Foundry food hooks apply real actor effects exactly once, replace buffs an
   await import("../scripts/food.mjs");
   await once.get("ready")();
   await mod.api.installFoodItems();
-  assert.equal(docs.length, 8);
+  // Ready now installs eight meals plus five brewed ales.
+  for (let i = 0; i < 10 && docs.length < 13; i++)
+    await new Promise(resolve => setImmediate(resolve));
+  assert.equal(docs.length, 13);
   const actor = {
     uuid: "Actor.Player1", documentName: "Actor", isOwner: true,
     items: new Map(), effects: [], system: { attributes: { hp: { temp: 0 } } },
