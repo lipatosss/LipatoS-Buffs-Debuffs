@@ -70,6 +70,30 @@ export class FoodUseTracker {
     ticket.updateSeen = true;
     return this._claim(ticket);
   }
+  /**
+   * Terminal last-charge deletion, even if Foundry emits NO activity hook or
+   * updateItem for the destroyed document. A real direct inventory "Use"
+   * can do exactly that. Merge a deletion with a just-handled update/postUse
+   * instead of awarding the same meal twice.
+   *
+   * This must only be called for a confirmed food candidate by food.mjs.
+   */
+  itemDeleted(key, { acceptUnprimed = false } = {}) {
+    if (!key) return false;
+    const queue = this._queue(key);
+    const last = queue[queue.length - 1];
+    if (last?.deletedSeen) return false;
+    // Update/consumption and deletion in one operation normally happen
+    // within a fraction of a second. Keep the same ticket in that case.
+    const sameActivation = Boolean(last &&
+      this.now() - last.at < 1500 &&
+      (last.handled || !last.postSeen));
+    const ticket = sameActivation ? last :
+      acceptUnprimed ? this._new(key, null) : null;
+    if (!ticket) return false;
+    ticket.deletedSeen = true;
+    return this._claim(ticket);
+  }
   /** Result fallback for flows that do not emit the consumption hook. */
   postUse(key, usage, result, confirmed) {
     if (!result || typeof result !== "object" || this.byResult.has(result)) return false;
