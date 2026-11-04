@@ -17,6 +17,9 @@ const primed = new Map();
 const restResults = new WeakSet();
 const rerolls = new Set();
 const ignoredUpdates = new Set();
+// preDeleteItem retains the originating actor while the embedded document is
+// being removed. Some inventory Use controls auto-destroy the Item directly.
+const terminalItemSnapshots = new WeakMap();
 const FOOD_ACTIVITY_ID = "eatMeal000000001"; // Old, REMOVE on upgrade
 const USE_ACTIVITY_ID = "useFood000000001";
 
@@ -380,13 +383,61 @@ Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, result) => {
   }
   primed.delete(key);
 });
-Hooks.on("deleteItem", (item, options, userId) => {
-  if (!foodDefinition(item) || item.parent?.documentName !== "Actor") return;
+/**
+ * Capture the owner BEFORE Foundry removes the actor-embedded item. Foundry
+ * versions and modules may clear .parent/.actor on the deleted document.
+ */
+Hooks.on("preDeleteItem", (item, options, userId) => {
+  const food = foodDefinition(item);
+  if (!food) return;
+  const actor = item.parent?.documentName === "Actor" ? item.parent : item.actor;
+  if (actor?.documentName !== "Actor" || !actor.isOwner) return;
+  terminalItemSnapshots.set(item, {
+    actor, food, at: Date.now(), item: {
+      id: item.id, name: item.name, img: item.img,
+      uuid: item.uuid, type: item.type,
+      system: { identifier: food.id }
+    }
+  });
+});
+
+/**
+ * Most important difference from older releases:
+ * native "Использовать" may DELETE the last charge directly.
+ * The old preUseActivity requirement suppressed the buff on exactly this path.
+ *
+ * A last-charge food deletion on the initiating user's client is treated as
+ * consumption even when Foundry sends no other activity/charge hook. A manual
+ * deletion of such a food is indistinguishable from an auto-consume if no
+ * usage metadata is supplied; users can opt out through lipatosSkipMealBuff.
+ */
+Hooks.on("deleteItem", (item, options = {}, userId) => {
   if (userId && userId !== game.user?.id) return;
-  const actor = item.parent, key = foodKey(actor, item);
+  if (options?.lipatosSkipMealBuff === true) return;
+  const snapshot = terminalItemSnapshots.get(item);
+  terminalItemSnapshots.delete(item);
+  const food = foodDefinition(item) ?? snapshot?.food;
+  if (!food) return;
+  const actor = snapshot?.actor
+    ?? (item.parent?.documentName === "Actor" ? item.parent : item.actor);
+  if (actor?.documentName !== "Actor" || !actor.isOwner) return;
+  const sourceItem = snapshot?.item ?? item;
+  const key = foodKey(actor, sourceItem);
+  if (!key || ignoredUpdates.has(key)) return;
+
   const entry = primed.get(key);
-  if (!entry || Date.now() - entry.time > 30000 || ignoredUpdates.has(key)) return;
-  if (useTracker.itemUpdated(key)) runFood(actor, item, "deleteItem");
+  const primedRecently = Boolean(entry && Date.now() - entry.time < 30000);
+  const uses = item.system?.uses ?? {};
+  const spent = Number(uses.spent ?? 0);
+  const max = Number(uses.max ?? 0);
+  const lastPortion = Number(item.system?.quantity ?? 1) <= 1;
+  const nativeAutoDestroy = uses.autoDestroy === true && max >= 1 && lastPortion;
+  const chargedOut = max >= 1 && spent >= max;
+  if (!nativeAutoDestroy && !chargedOut && !primedRecently) return;
+  if (useTracker.itemDeleted(key, { acceptUnprimed: true })) {
+    primed.delete(key);
+    runFood(actor, sourceItem, "deleteItem-autoDestroy");
+  }
 });
 
 // Poison resistance comes from an ActiveEffect. Advantage must only apply to
