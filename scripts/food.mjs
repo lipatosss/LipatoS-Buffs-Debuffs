@@ -4,18 +4,20 @@
  * One charge is consumed by the native dnd5e Activity, not by this file.
  */
 import { replaceMealEffects } from "./meal-shared.mjs";
+import { FoodUseTracker } from "./food-use-tracker.mjs";
 
 const NS = "lipatos-buffs-debuffs";
 const STEALTH_TART = "chernichnyy-tart-teney";
 const foodIcon = food => `modules/${NS}/icons/foods/${food.id}.webp`;
 const ADD = 2; // CONST.ACTIVE_EFFECT_MODES.ADD
 const tasks = new Map();
-const claimedUses = new Map();
+const useTracker = new FoodUseTracker();
 const primed = new Map();
-const completed = new WeakSet();
+
 const restResults = new WeakSet();
 const rerolls = new Set();
 const ignoredUpdates = new Set();
+const FOOD_ACTIVITY_ID = "eatMeal000000001";
 
 const FOODS = Object.freeze([
   {
@@ -130,7 +132,7 @@ function makeItem(food) {
       rarity: "common",
       uses: { spent: 0, max: "1", recovery: [], prompt: false, autoDestroy: true },
       activities: {
-        eatMeal000000001: {
+        [FOOD_ACTIVITY_ID]: {
           type: "utility", name: "Съесть",
           activation: { type: "action", value: 1, condition: "" },
           consumption: {
@@ -164,8 +166,23 @@ export async function installFoodItems() {
   for (const item of all) {
     const food = foodDefinition(item);
     if (!food) continue;
+    const patch = {};
     const image = foodIcon(food);
-    if (item.img !== image) await item.update({ img: image });
+    if (item.img !== image) patch.img = image;
+    // A previous module version only migrated images. Repair the actual
+    // 1-charge item use as well, on BOTH world and actor-owned food.
+    const uses = item.system?.uses ?? {};
+    if (Number(uses.max ?? 0) !== 1) patch["system.uses.max"] = "1";
+    if (uses.autoDestroy !== true) patch["system.uses.autoDestroy"] = true;
+    const raw = item.toObject?.()?.system?.activities ?? {};
+    const ownActivity = raw[FOOD_ACTIVITY_ID];
+    const target = ownActivity?.consumption?.targets?.find(t => t.type === "itemUses" && Number(t.value) === 1);
+    if (!target) {
+      // Only touch our module's own fixed Activity ID: preserve custom ones.
+      patch["system.activities." + FOOD_ACTIVITY_ID] =
+        makeItem(food).system.activities[FOOD_ACTIVITY_ID];
+    }
+    if (Object.keys(patch).length) await item.update(patch);
   }
   const missing = FOODS.filter(food => !existing.has(food.id));
   if (!missing.length) return [];
@@ -234,75 +251,78 @@ function runFood(actor, item, trigger) {
     ui.notifications?.error?.("Не удалось применить бафф «" + food.buff + "» (F12).");
   });
 }
-function claim(key, source) {
-  if (!key) return false;
-  const entry = claimedUses.get(key) ?? { updates: 0, posts: 0 };
-  if (source === "update") {
-    entry.updates++;
-    claimedUses.set(key, entry);
-    return true;
-  }
-  const alreadyHandled = entry.posts < entry.updates;
-  entry.posts++;
-  claimedUses.set(key, entry);
-  return !alreadyHandled;
-}
-function prime(activity) {
+// D&D5e 6.0.6 confirmed consumption is the primary trigger. The old
+// implementation checked for remaining charges AFTER autoDestroy and could
+// silently skip a successfully eaten food. Track individual activations so
+// updateItem, deleteItem, postUse and postActivityConsumption never stack buffs.
+function prime(activity, usageConfig, isNew) {
   if (!foodDefinition(activity?.item)) return;
   const actor = ownActor(activity), key = foodKey(actor, activity.item);
-  if (key) primed.set(key, {
-    time: Date.now(),
-    quantity: Number(activity.item.system?.quantity ?? 1)
-  });
+  if (!key || !actor?.isOwner) return;
+  if (isNew) useTracker.begin(key, usageConfig);
+  else useTracker.preConsumption(key, usageConfig);
+  if (isNew || !primed.has(key)) {
+    primed.set(key, {
+      time: Date.now(),
+      quantity: Number(activity.item.system?.quantity ?? 1)
+    });
+  }
 }
-Hooks.on("dnd5e.preUseActivity", prime);
-Hooks.on("dnd5e.preActivityConsumption", prime);
+Hooks.on("dnd5e.preUseActivity", (activity, usageConfig) => prime(activity, usageConfig, true));
+Hooks.on("dnd5e.preActivityConsumption", (activity, usageConfig) => prime(activity, usageConfig, false));
 
-Hooks.on("updateItem", (item, change, options, userId) => {
+Hooks.on("dnd5e.postActivityConsumption", (activity, usageConfig) => {
+  const item = activity?.item, food = foodDefinition(item);
+  if (!food) return;
+  const actor = ownActor(activity), key = foodKey(actor, item);
+  if (!actor?.isOwner || !key) return;
+  // This hook is called by dnd5e after it has performed the consumption.
+  // Do not depend on item still being present after autoDestroy.
+  if (useTracker.consumed(key, usageConfig)) {
+    console.info(NS + " | Списана еда (postActivityConsumption):", food.name);
+    runFood(actor, item, "postActivityConsumption");
+  }
+});
+
+Hooks.on("updateItem", (item, changed, options, userId) => {
   if (!foodDefinition(item) || item.parent?.documentName !== "Actor") return;
   if (userId && userId !== game.user?.id) return;
   const actor = item.parent, key = foodKey(actor, item);
   if (ignoredUpdates.has(key)) return;
-  const spent = change?.["system.uses.spent"] ?? change?.system?.uses?.spent;
-  const quantity = change?.["system.quantity"] ?? change?.system?.quantity;
-  const chargeSpent = spent !== undefined && Number(spent) > 0
+  const spent = changed?.["system.uses.spent"] ?? changed?.system?.uses?.spent;
+  const quantity = changed?.["system.quantity"] ?? changed?.system?.quantity;
+  const usedCharge = spent !== undefined && Number(spent) > 0
     && Number(item.system?.uses?.spent ?? 0) > 0;
   const entry = primed.get(key);
-  const quantitySpent = entry && Date.now() - entry.time < 15000
+  const usedPortion = entry && Date.now() - entry.time < 30000
     && quantity !== undefined && Number(quantity) < entry.quantity;
-  if ((chargeSpent || quantitySpent) && claim(key, "update")) {
-    primed.delete(key);
+  if ((usedCharge || usedPortion) && useTracker.itemUpdated(key)) {
     runFood(actor, item, "updateItem");
   }
 });
 Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, result) => {
-  if (!foodDefinition(activity?.item) || !result || typeof result !== "object") return;
-  if (completed.has(result)) return;
-  completed.add(result);
+  if (!foodDefinition(activity?.item)) return;
   const actor = ownActor(activity), key = foodKey(actor, activity.item);
+  if (!actor?.isOwner || !key) return;
   const before = primed.get(key);
-  const owned = actor?.items?.get?.(activity.item.id);
-  const usedCharge = Number(owned?.system?.uses?.spent ?? 0) > 0;
-  const usedPortion = before && owned
-    && Number(owned.system?.quantity ?? 1) < before.quantity;
-  const consumedEntirely = actor?.items && !owned;
-  // Do not award a free buff when an activity finished without consuming food.
-  // If a charge is spent later, the updateItem hook remains the primary path.
-  if (!usedCharge && !usedPortion && !consumedEntirely) return;
+  const current = actor.items?.get?.(activity.item.id);
+  const usedCharge = Number(current?.system?.uses?.spent ?? 0) > 0;
+  const usedPortion = before && current
+    && Number(current.system?.quantity ?? 1) < before.quantity;
+  const fullyConsumed = Boolean(before && actor.items && !current);
+  if (useTracker.postUse(key, usageConfig, result,
+    Boolean(usedCharge || usedPortion || fullyConsumed))) {
+    runFood(actor, activity.item, "postUseActivity");
+  }
   primed.delete(key);
-  if (claim(key, "post")) runFood(actor, activity.item, "postUseActivity");
 });
 Hooks.on("deleteItem", (item, options, userId) => {
   if (!foodDefinition(item) || item.parent?.documentName !== "Actor") return;
   if (userId && userId !== game.user?.id) return;
-  const key = foodKey(item.parent, item), entry = primed.get(key);
-  if (!entry || Date.now() - entry.time > 15000) return;
-  primed.delete(key);
-  if (ignoredUpdates.has(key)) return;
-  const seen = claimedUses.get(key);
-  // A previous charge update already handled this use.
-  if ((seen?.updates ?? 0) > (seen?.posts ?? 0)) return;
-  if (claim(key, "update")) runFood(item.parent, item, "deleteItem");
+  const actor = item.parent, key = foodKey(actor, item);
+  const entry = primed.get(key);
+  if (!entry || Date.now() - entry.time > 30000 || ignoredUpdates.has(key)) return;
+  if (useTracker.itemUpdated(key)) runFood(actor, item, "deleteItem");
 });
 
 // Poison resistance comes from an ActiveEffect. Advantage must only apply to
