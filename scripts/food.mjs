@@ -86,7 +86,14 @@ const byId = new Map(FOODS.map(food => [food.id, food]));
 
 function foodDefinition(item) {
   if (item?.type !== "consumable") return null;
-  return byId.get(String(item.system?.identifier ?? "").trim().toLowerCase()) ?? null;
+  const identifier = String(item.system?.identifier ?? "").trim().toLowerCase();
+  const byIdentifier = byId.get(identifier);
+  if (byIdentifier) return byIdentifier;
+  // Mastercrafted and Item Piles may copy a product without the identifier
+  // we originally assigned to the world template. Exact Russian names are
+  // unique and let those newly crafted items remain fully automated.
+  const name = String(item.name ?? "").trim().replace(/\\s+/g, " ").toLocaleLowerCase("ru");
+  return FOODS.find(food => food.name.toLocaleLowerCase("ru") === name) ?? null;
 }
 function ownActor(activity) {
   return activity?.actor ?? activity?.item?.actor
@@ -150,40 +157,48 @@ function makeItem(food) {
   };
 }
 
-/**
- * GM-only, idempotent installer and icon migration. Preserve the mechanics,
- * descriptions, custom properties, quantities and other edits of existing
- * items: update only the icon for matching food identifiers.
- */
+/** Repair a crafted/legacy product in place, without changing its quantity,
+ * custom names, weight, price, ingredients or arbitrary other activities. */
+async function repairFoodItem(item) {
+  const food = foodDefinition(item);
+  if (!food) return false;
+  const patch = {};
+  const image = foodIcon(food);
+  if (item.img !== image) patch.img = image;
+  if (String(item.system?.identifier ?? "") !== food.id)
+    patch["system.identifier"] = food.id;
+  if (item.system?.type?.value !== "food")
+    patch["system.type.value"] = "food";
+  if (item.flags?.[NS]?.cookedFood !== true)
+    patch["flags." + NS + ".cookedFood"] = true;
+  const uses = item.system?.uses ?? {};
+  if (Number(uses.max ?? 0) !== 1) patch["system.uses.max"] = "1";
+  if (uses.autoDestroy !== true) patch["system.uses.autoDestroy"] = true;
+  if (uses.prompt !== false) patch["system.uses.prompt"] = false;
+  const raw = item.toObject?.()?.system?.activities ?? {};
+  const ownActivity = raw[FOOD_ACTIVITY_ID];
+  const target = ownActivity?.consumption?.targets?.find(t =>
+    t.type === "itemUses" && Number(t.value) === 1);
+  if (!target) {
+    patch["system.activities." + FOOD_ACTIVITY_ID] =
+      makeItem(food).system.activities[FOOD_ACTIVITY_ID];
+  }
+  if (!Object.keys(patch).length) return false;
+  await item.update(patch);
+  return true;
+}
+
+/** GM-only installer; existing world and actor items are repaired safely. */
 export async function installFoodItems() {
   if (!game.user?.isGM) throw new Error("Создание блюд доступно только ГМ.");
   const world = game.items?.contents ?? [];
-  const owned = (game.actors?.contents ?? [])
-    .flatMap(actor => actor.items?.contents ?? []);
-  const all = [...world, ...owned];
-  const existing = new Set(world.map(item =>
-    String(item.system?.identifier ?? "").trim().toLowerCase()));
-  for (const item of all) {
-    const food = foodDefinition(item);
-    if (!food) continue;
-    const patch = {};
-    const image = foodIcon(food);
-    if (item.img !== image) patch.img = image;
-    // A previous module version only migrated images. Repair the actual
-    // 1-charge item use as well, on BOTH world and actor-owned food.
-    const uses = item.system?.uses ?? {};
-    if (Number(uses.max ?? 0) !== 1) patch["system.uses.max"] = "1";
-    if (uses.autoDestroy !== true) patch["system.uses.autoDestroy"] = true;
-    const raw = item.toObject?.()?.system?.activities ?? {};
-    const ownActivity = raw[FOOD_ACTIVITY_ID];
-    const target = ownActivity?.consumption?.targets?.find(t => t.type === "itemUses" && Number(t.value) === 1);
-    if (!target) {
-      // Only touch our module's own fixed Activity ID: preserve custom ones.
-      patch["system.activities." + FOOD_ACTIVITY_ID] =
-        makeItem(food).system.activities[FOOD_ACTIVITY_ID];
-    }
-    if (Object.keys(patch).length) await item.update(patch);
+  const actors = game.actors?.contents ?? [];
+  const owned = actors.flatMap(actor => actor.items?.contents ?? []);
+  for (const item of [...world, ...owned]) {
+    if (foodDefinition(item)) await repairFoodItem(item);
   }
+  const existing = new Set(world
+    .map(item => foodDefinition(item)?.id).filter(Boolean));
   const missing = FOODS.filter(food => !existing.has(food.id));
   if (!missing.length) return [];
   return Item.createDocuments(missing.map(makeItem));
@@ -238,14 +253,26 @@ async function finalizeCharge(actor, item) {
     else await owned.delete();
   } finally { ignoredUpdates.delete(key); }
 }
-function runFood(actor, item, trigger) {
+function runFood(actor, item, trigger, { manualConsumption = false } = {}) {
   const food = foodDefinition(item);
   if (!food || !actor?.isOwner || actor.documentName !== "Actor") return;
   void workFor(actor, async () => {
+    // A successful native "Use" action must spend exactly one charge.
+    // If third-party modules bypass the dnd5e consumption pipeline,
+    // our postUse fallback spends it once before applying the buff.
+    if (manualConsumption) {
+      const owned = actor.items?.get?.(item.id);
+      const key = foodKey(actor, item);
+      if (owned && foodDefinition(owned)) {
+        ignoredUpdates.add(key);
+        try { await owned.update({ "system.uses.spent": 1 }); }
+        finally { ignoredUpdates.delete(key); }
+      }
+    }
     const applied = await applyFood(actor, item, food);
     if (!applied) return;
     await finalizeCharge(actor, item);
-    console.info(NS + " | Еда: " + food.name + " (" + trigger + ")");
+    console.info(NS + " | Автоматически применена еда: " + food.name + " (" + trigger + ")");
   }).catch(error => {
     console.error(NS + " | Ошибка применения еды " + food.name, error);
     ui.notifications?.error?.("Не удалось применить бафф «" + food.buff + "» (F12).");
@@ -301,18 +328,22 @@ Hooks.on("updateItem", (item, changed, options, userId) => {
   }
 });
 Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, result) => {
-  if (!foodDefinition(activity?.item)) return;
+  // postUseActivity fires only after an activity has successfully activated.
+  // Do NOT demand remaining item uses here: autoDestroy may have removed
+  // the item, or a custom sheet may have bypassed its native consumption.
+  if (!foodDefinition(activity?.item) || !result || typeof result !== "object") return;
   const actor = ownActor(activity), key = foodKey(actor, activity.item);
   if (!actor?.isOwner || !key) return;
   const before = primed.get(key);
   const current = actor.items?.get?.(activity.item.id);
   const usedCharge = Number(current?.system?.uses?.spent ?? 0) > 0;
-  const usedPortion = before && current
-    && Number(current.system?.quantity ?? 1) < before.quantity;
+  const usedPortion = Boolean(before && current &&
+    Number(current.system?.quantity ?? 1) < before.quantity);
   const fullyConsumed = Boolean(before && actor.items && !current);
-  if (useTracker.postUse(key, usageConfig, result,
-    Boolean(usedCharge || usedPortion || fullyConsumed))) {
-    runFood(actor, activity.item, "postUseActivity");
+  const nativeConsumed = Boolean(usedCharge || usedPortion || fullyConsumed);
+  if (useTracker.postUse(key, usageConfig, result, true)) {
+    runFood(actor, activity.item, "postUseActivity",
+      { manualConsumption: !nativeConsumed && Boolean(current) });
   }
   primed.delete(key);
 });
@@ -371,6 +402,20 @@ Hooks.on("dnd5e.restCompleted", (actor, result, config) => {
     if (effects.length) await actor.deleteEmbeddedDocuments("ActiveEffect", effects.map(e => e.id));
     // dnd5e itself resets temp HP on long rest; do not wipe unrelated resources.
   }).catch(error => console.error(NS + " | Долгий отдых: еда", error));
+});
+
+// Mastercrafted may generate a fresh actor item during crafting. Repair it
+// immediately so the "Съесть" activity, type, icon and charges appear without
+// a world reload. The user who created it (or first active GM) performs the
+// update to avoid multiple clients modifying the same item.
+Hooks.on("createItem", (item, options, userId) => {
+  if (item.parent?.documentName !== "Actor" || !foodDefinition(item)) return;
+  if (game.user?.isGM) {
+    if (firstGM()?.id !== game.user.id) return;
+  } else if (userId !== game.user?.id) return;
+  void repairFoodItem(item).catch(error => {
+    console.error(NS + " | Не удалось настроить блюдо после крафта", error);
+  });
 });
 
 Hooks.once("ready", () => {
