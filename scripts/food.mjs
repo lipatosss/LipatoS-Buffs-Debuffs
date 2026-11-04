@@ -406,7 +406,11 @@ Hooks.on("preDeleteItem", (item, options, userId) => {
     actor, food, at: Date.now(), item: {
       id: item.id, name: item.name, img: item.img,
       uuid: item.uuid, type: item.type,
-      system: { identifier: food.id }
+      system: { identifier: food.id,
+        quantity: Number(item.system?.quantity ?? 1),
+        uses: { spent: Number(item.system?.uses?.spent ?? 0),
+          max: Number(item.system?.uses?.max ?? 0),
+          autoDestroy: item.system?.uses?.autoDestroy === true } }
     }
   });
 });
@@ -439,10 +443,12 @@ Hooks.on("deleteItem", (item, options = {}, userId) => {
 
   const entry = primed.get(key);
   const primedRecently = Boolean(entry && Date.now() - entry.time < 30000);
-  const uses = item.system?.uses ?? {};
+  // Snapshot values survive systems that nullify deleted document fields.
+  const uses = snapshot?.item?.system?.uses ?? item.system?.uses ?? {};
   const spent = Number(uses.spent ?? 0);
   const max = Number(uses.max ?? 0);
-  const lastPortion = Number(item.system?.quantity ?? 1) <= 1;
+  const lastPortion = Number(snapshot?.item?.system?.quantity
+    ?? item.system?.quantity ?? 1) <= 1;
   const nativeAutoDestroy = uses.autoDestroy === true && max >= 1 && lastPortion;
   const chargedOut = max >= 1 && spent >= max;
   if (!nativeAutoDestroy && !chargedOut && !primedRecently) return;
