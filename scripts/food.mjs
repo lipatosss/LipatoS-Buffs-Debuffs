@@ -17,7 +17,8 @@ const primed = new Map();
 const restResults = new WeakSet();
 const rerolls = new Set();
 const ignoredUpdates = new Set();
-const FOOD_ACTIVITY_ID = "eatMeal000000001";
+const FOOD_ACTIVITY_ID = "eatMeal000000001"; // Old, REMOVE on upgrade
+const USE_ACTIVITY_ID = "useFood000000001";
 
 const FOODS = Object.freeze([
   {
@@ -121,6 +122,20 @@ function mealDescription(food) {
     + "<p>Действует до завершения следующего долгого отдыха. "
     + "Любая другая еда или вересковая медовуха заменяет этот бафф.</p>";
 }
+function nativeUseActivity() {
+  // D&D5e 6.x needs a single ordinary utility activity so the INVENTORY'S
+  // built-in "Использовать" control has something to activate.
+  // There is no separate "Съесть" button and no script/macro popup.
+  return {
+    type: "utility", name: "Использовать",
+    activation: { type: "action", value: 1, condition: "" },
+    consumption: {
+      targets: [{ type: "itemUses", target: "", value: "1",
+        scaling: { mode: "", formula: "" } }],
+      scaling: { allowed: false }
+    }
+  };
+}
 function makeItem(food) {
   const description = "<p>" + food.name + ". После употребления: <strong>"
     + food.buff + "</strong> — " + food.effect + "</p>"
@@ -137,7 +152,8 @@ function makeItem(food) {
       weight: { value: food.weight, units: "lb" },
       price: { value: food.portionSp, denomination: "sp" },
       rarity: "common",
-      uses: { spent: 0, max: "1", recovery: [], prompt: false, autoDestroy: true }
+      uses: { spent: 0, max: "1", recovery: [], prompt: false, autoDestroy: true },
+      activities: { [USE_ACTIVITY_ID]: nativeUseActivity() }
     },
     flags: { [NS]: { cookedFood: true, recipeDc: food.dc,
       batchYield: food.batch, batchCostCp: food.batchCp,
@@ -165,9 +181,12 @@ async function repairFoodItem(item) {
   if (uses.autoDestroy !== true) patch["system.uses.autoDestroy"] = true;
   if (uses.prompt !== false) patch["system.uses.prompt"] = false;
   const raw = item.toObject?.()?.system?.activities ?? {};
-  // Previous releases injected a separate "Съесть" utility activity.
-  // Remove ONLY that synthetic activity, never touch the user's native
-  // "Использовать" action or other configured item activities.
+  // Previous releases injected "Съесть". Remove that *only*.
+  // Preserve all user-created actions including an existing "Использовать".
+  const remaining = Object.keys(raw).filter(id => id !== FOOD_ACTIVITY_ID);
+  if (!remaining.length) {
+    patch["system.activities." + USE_ACTIVITY_ID] = nativeUseActivity();
+  }
   if (raw[FOOD_ACTIVITY_ID]) {
     patch["system.activities.-=" + FOOD_ACTIVITY_ID] = null;
   }
@@ -283,6 +302,17 @@ function prime(activity, usageConfig, isNew) {
     });
   }
 }
+// Legacy dnd5e inventory "Использовать" may fire preUseItem rather than
+// preUseActivity. Prime exactly like the heather mead's consumption flow.
+Hooks.on("dnd5e.preUseItem", (item, usageConfig) => {
+  if (!foodDefinition(item)) return;
+  const actor = item.actor ?? item.parent;
+  const key = foodKey(actor, item);
+  if (!actor?.isOwner || !key) return;
+  useTracker.preConsumption(key, usageConfig);
+  primed.set(key, { time: Date.now(),
+    quantity: Number(item.system?.quantity ?? 1) });
+});
 Hooks.on("dnd5e.preUseActivity", (activity, usageConfig) => prime(activity, usageConfig, true));
 Hooks.on("dnd5e.preActivityConsumption", (activity, usageConfig) => prime(activity, usageConfig, false));
 
