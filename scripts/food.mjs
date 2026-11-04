@@ -7,6 +7,7 @@ import { replaceMealEffects } from "./meal-shared.mjs";
 
 const NS = "lipatos-buffs-debuffs";
 const STEALTH_TART = "chernichnyy-tart-teney";
+const foodIcon = food => `modules/${NS}/icons/foods/${food.id}.webp`;
 const ADD = 2; // CONST.ACTIVE_EFFECT_MODES.ADD
 const tasks = new Map();
 const claimedUses = new Map();
@@ -119,7 +120,7 @@ function makeItem(food) {
     + "; результат " + food.batch + " порц.; ингредиенты: "
     + food.components.join(", ") + ".</p>";
   return {
-    name: food.name, type: "consumable", img: "icons/svg/item-bag.svg",
+    name: food.name, type: "consumable", img: foodIcon(food),
     system: {
       identifier: food.id, description: { value: description },
       type: { value: "food", subtype: "" },
@@ -147,12 +148,26 @@ function makeItem(food) {
   };
 }
 
-/** GM-only, idempotent installer. Never overwrite player's edited world items. */
+/**
+ * GM-only, idempotent installer and icon migration. Preserve the mechanics,
+ * descriptions, custom properties, quantities and other edits of existing
+ * items: update only the icon for matching food identifiers.
+ */
 export async function installFoodItems() {
   if (!game.user?.isGM) throw new Error("Создание блюд доступно только ГМ.");
-  const current = new Set((game.items?.contents ?? [])
-    .map(item => String(item.system?.identifier ?? "").trim().toLowerCase()));
-  const missing = FOODS.filter(food => !current.has(food.id));
+  const world = game.items?.contents ?? [];
+  const owned = (game.actors?.contents ?? [])
+    .flatMap(actor => actor.items?.contents ?? []);
+  const all = [...world, ...owned];
+  const existing = new Set(world.map(item =>
+    String(item.system?.identifier ?? "").trim().toLowerCase()));
+  for (const item of all) {
+    const food = foodDefinition(item);
+    if (!food) continue;
+    const image = foodIcon(food);
+    if (item.img !== image) await item.update({ img: image });
+  }
+  const missing = FOODS.filter(food => !existing.has(food.id));
   if (!missing.length) return [];
   return Item.createDocuments(missing.map(makeItem));
 }
@@ -160,7 +175,7 @@ export const listFood = () => FOODS.map(food => ({
   identifier: food.id, name: food.name, buff: food.buff, effect: food.effect,
   recipeDc: food.dc, batchYield: food.batch, batchCostCp: food.batchCp,
   recipePriceGp: food.recipeGp, priceSp: food.portionSp,
-  dessert: food.dessert === true, ingredients: [...food.components]
+  dessert: food.dessert === true, img: foodIcon(food), ingredients: [...food.components]
 }));
 
 async function applyFood(actor, item, food) {
