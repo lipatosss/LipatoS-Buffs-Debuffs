@@ -8,7 +8,7 @@ import { FoodUseTracker } from "./food-use-tracker.mjs";
 
 const NS = "lipatos-buffs-debuffs";
 const STEALTH_TART = "chernichnyy-tart-teney";
-const foodIcon = food => `modules/${NS}/icons/foods/${food.id}.webp`;
+const foodIcon = food => `modules/${NS}/icons/${food.beer ? "beers" : "foods"}/${food.id}.webp`;
 const ADD = 2; // CONST.ACTIVE_EFFECT_MODES.ADD
 const tasks = new Map();
 const useTracker = new FoodUseTracker();
@@ -93,7 +93,52 @@ const FOODS = Object.freeze([
   }
 ]);
 
-const byId = new Map(FOODS.map(food => [food.id, food]));
+
+const BEERS = Object.freeze([
+  {
+    id: "veselyy-trubadur", name: "Весёлый трубадур", buff: "Хмельная удаль",
+    effect: "+2 к проверкам Харизмы (Выступление).",
+    description: "Медно-янтарный эль с мёдом и хмелем. Его любят певцы и странствующие артисты.",
+    dc: 11, batch: 3, batchCp: 54, recipeGp: 40, portionSp: 7, weight: 1,
+    components: ["Ячмень ×3", "Хмель ×2", "Мёд ×1", "Дрожжи ×1", "Чистая вода ×1"],
+    changes: [["system.skills.prf.roll.bonus", "2"]], beer: true
+  },
+  {
+    id: "kabanya-yarost-pivo", name: "Кабанья ярость", buff: "Кабанья отвага",
+    effect: "+2 к проверкам Харизмы (Запугивание).",
+    description: "Тёмный крепкий эль из обжаренного солода с терпким послевкусием.",
+    dc: 13, batch: 3, batchCp: 87, recipeGp: 65, portionSp: 12, weight: 1,
+    components: ["Ячмень ×3", "Жареный солод ×2", "Хмель ×1", "Дрожжи ×1", "Чистая вода ×1"],
+    changes: [["system.skills.itm.roll.bonus", "2"]], beer: true
+  },
+  {
+    id: "lesnoy-shepot", name: "Лесной шёпот", buff: "Лесное чутьё",
+    effect: "+2 к проверкам Интеллекта (Природа).",
+    description: "Светлый золотисто-зелёный эль, настоянный на душистых лесных травах.",
+    dc: 12, batch: 3, batchCp: 69, recipeGp: 70, portionSp: 10, weight: 1,
+    components: ["Пшеница ×3", "Хмель ×1", "Лесные травы ×2", "Дрожжи ×1", "Чистая вода ×1"],
+    changes: [["system.skills.nat.roll.bonus", "2"]], beer: true
+  },
+  {
+    id: "pastushiy-el", name: "Пастуший эль", buff: "Звериное доверие",
+    effect: "+2 к проверкам Мудрости (Дрессировка).",
+    description: "Мягкий светлый эль с овсом и ромашкой, любимый пастухами и конюхами.",
+    dc: 11, batch: 3, batchCp: 57, recipeGp: 45, portionSp: 8, weight: 1,
+    components: ["Ячмень ×2", "Овёс ×2", "Хмель ×1", "Ромашка ×1", "Дрожжи ×1", "Чистая вода ×1"],
+    changes: [["system.skills.ani.roll.bonus", "2"]], beer: true
+  },
+  {
+    id: "shalfejnyj-el", name: "Шалфейный эль", buff: "Целебное чутьё",
+    effect: "+2 к проверкам Мудрости (Медицина).",
+    description: "Душистый эль с мёдом и шалфеем, который ценят странствующие лекари.",
+    dc: 13, batch: 3, batchCp: 84, recipeGp: 80, portionSp: 12, weight: 1,
+    components: ["Пшеница ×2", "Хмель ×1", "Шалфей ×2", "Мёд ×1", "Дрожжи ×1", "Чистая вода ×1"],
+    changes: [["system.skills.med.roll.bonus", "2"]], beer: true
+  }
+]);
+
+const ALL_MEALS = [...FOODS, ...BEERS];
+const byId = new Map(ALL_MEALS.map(food => [food.id, food]));
 
 function foodDefinition(item) {
   if (item?.type !== "consumable") return null;
@@ -104,7 +149,7 @@ function foodDefinition(item) {
   // we originally assigned to the world template. Exact Russian names are
   // unique and let those newly crafted items remain fully automated.
   const name = String(item.name ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("ru");
-  return FOODS.find(food => food.name.toLocaleLowerCase("ru") === name) ?? null;
+  return ALL_MEALS.find(food => food.name.toLocaleLowerCase("ru") === name) ?? null;
 }
 function ownActor(activity) {
   return activity?.actor ?? activity?.item?.actor
@@ -146,7 +191,7 @@ function nativeUseActivity() {
   };
 }
 function makeItem(food) {
-  const description = "<p>" + food.name + ". После употребления: <strong>"
+  const description = "<p>" + (food.beer ? "Пиво «" + food.name + "»" : food.name) + ". " + (food.description ? food.description + " " : "") + "После употребления: <strong>"
     + food.buff + "</strong> — " + food.effect + "</p>"
     + "<p><strong>Длительность:</strong> до долгого отдыха.</p>"
     + "<p><strong>Крафт:</strong> Кулинария, СЛ " + food.dc
@@ -164,7 +209,7 @@ function makeItem(food) {
       uses: { spent: 0, max: "1", recovery: [], prompt: false, autoDestroy: true },
       activities: { [USE_ACTIVITY_ID]: nativeUseActivity() }
     },
-    flags: { [NS]: { cookedFood: true, recipeDc: food.dc,
+    flags: { [NS]: { cookedFood: !food.beer, brewedBeer: food.beer === true, recipeDc: food.dc,
       batchYield: food.batch, batchCostCp: food.batchCp,
       recipePriceGp: food.recipeGp, ingredients: food.components,
       dessert: food.dessert === true } }
@@ -179,6 +224,8 @@ async function repairFoodItem(item) {
   const patch = {};
   const image = foodIcon(food);
   if (item.img !== image) patch.img = image;
+  if (food.beer && item.flags?.[NS]?.brewedBeer !== true)
+    patch["flags." + NS + ".brewedBeer"] = true;
   // Existing crafted and world items must also stop displaying the old fixed
   // "8 temporary HP" text; preserve all unrelated custom description fields.
   const oldDescription = String(item.system?.description?.value ?? "");
@@ -192,7 +239,7 @@ async function repairFoodItem(item) {
     patch["system.identifier"] = food.id;
   if (item.system?.type?.value !== "food")
     patch["system.type.value"] = "food";
-  if (item.flags?.[NS]?.cookedFood !== true)
+  if (!food.beer && item.flags?.[NS]?.cookedFood !== true)
     patch["flags." + NS + ".cookedFood"] = true;
   const uses = item.system?.uses ?? {};
   if (Number(uses.max ?? 0) !== 1) patch["system.uses.max"] = "1";
@@ -256,6 +303,27 @@ export const listFood = () => FOODS.map(food => ({
   dessert: food.dessert === true, img: foodIcon(food), ingredients: [...food.components]
 }));
 
+/** Create all five beers as native consumable item templates, without duplicates. */
+export async function installBeerItems() {
+  if (!game.user?.isGM) throw new Error("Создание пива доступно только ГМ.");
+  const world = game.items?.contents ?? [];
+  const actors = game.actors?.contents ?? [];
+  for (const item of [...world, ...actors.flatMap(actor => actor.items?.contents ?? [])]) {
+    if (foodDefinition(item)?.beer) await repairFoodItem(item);
+  }
+  const existing = new Set(world.map(item => foodDefinition(item)?.id).filter(Boolean));
+  const missing = BEERS.filter(beer => !existing.has(beer.id));
+  if (!missing.length) return [];
+  return Item.createDocuments(missing.map(makeItem));
+}
+export const listBeerItems = () => BEERS.map(beer => ({
+  identifier: beer.id, name: beer.name, buff: beer.buff, effect: beer.effect,
+  description: beer.description, recipeDc: beer.dc, batchYield: beer.batch,
+  batchCostCp: beer.batchCp, recipePriceGp: beer.recipeGp,
+  priceSp: beer.portionSp, weight: beer.weight, img: foodIcon(beer),
+  ingredients: [...beer.components]
+}));
+
 async function applyFood(actor, item, food) {
   if (!actor?.isOwner) return false;
   // Roll temporary HP using Foundry's dice engine (and show the roll in chat),
@@ -292,9 +360,19 @@ async function applyFood(actor, item, food) {
     await actor.update({ "system.attributes.hp.temp": newTemp });
   }
   await actor.createEmbeddedDocuments("ActiveEffect", [effect]);
-  // Cooked meals also count as eating for the existing Hunger subsystem.
-  try { await game.modules.get(NS)?.api?.feed?.(actor); }
-  catch (error) { console.warn(NS + " | Не удалось учесть еду для голода", error); }
+  if (food.beer) {
+    // As with heather mead, drinking one bottle returns an empty bottle.
+    // Reuse its existing item-template and inventory-stack handling.
+    try {
+      await game.modules.get(NS)?.api?.giveHeatherEmptyBottle?.(actor);
+    } catch (error) {
+      console.warn(NS + " | Не удалось вернуть бутылку из-под пива", error);
+    }
+  } else {
+    // Solid meals count as eating for the Hunger subsystem; beer does not.
+    try { await game.modules.get(NS)?.api?.feed?.(actor); }
+    catch (error) { console.warn(NS + " | Не удалось учесть еду для голода", error); }
+  }
   return true;
 }
 
@@ -565,15 +643,18 @@ Hooks.on("createItem", (item, options, userId) => {
 Hooks.once("ready", () => {
   const module = game.modules.get(NS);
   if (module) module.api = {
-    ...(module.api ?? {}), listFoodItems: listFood,
-    installFoodItems, rerollFoodStealth: rerollStealth,
+    ...(module.api ?? {}), listFoodItems: listFood, listBeerItems,
+    installFoodItems, installBeerItems, rerollFoodStealth: rerollStealth,
     recentFoodEvents: () => foodAudit.slice()
   };
   if (game.user?.isGM && firstGM()?.id === game.user.id) {
-    void installFoodItems().then(created => {
-      if (created.length) ui.notifications?.info?.(
-        "LipatoS: создано " + created.length + " блюд в «Предметах мира»."
+    void (async () => {
+      const createdFood = await installFoodItems();
+      const createdBeers = await installBeerItems();
+      if (createdFood.length || createdBeers.length) ui.notifications?.info?.(
+        "LipatoS: создано " + createdFood.length + " блюд и " +
+        createdBeers.length + " сортов пива в «Предметах мира»."
       );
-    }).catch(error => console.error(NS + " | Ошибка установки блюд", error));
+    })().catch(error => console.error(NS + " | Ошибка установки еды и пива", error));
   }
 });
