@@ -33,10 +33,10 @@ const USE_ACTIVITY_ID = "useFood000000001";
 const FOODS = Object.freeze([
   {
     id: "zharkoe-iz-dikogo-kabana", name: "Жаркое из дикого кабана",
-    buff: "Крепкая сытость", effect: "8 временных хитов.",
+    buff: "Крепкая сытость", effect: "1к4 + 2 временных хитов.",
     dc: 11, batch: 2, batchCp: 98, recipeGp: 35, portionSp: 9, weight: 1,
     components: ["Мясо кабана ×2", "Картофель ×2", "Чеснок ×1", "Розмарин ×1", "Соль ×1"],
-    tempHp: 8
+    tempHpFormula: "1d4 + 2"
   },
   {
     id: "uha-tumannogo-berega", name: "Уха туманного берега",
@@ -129,8 +129,7 @@ function foodEffects(actor) {
 }
 function mealDescription(food) {
   return "<p><strong>" + food.buff + ".</strong> " + food.effect + "</p>"
-    + "<p>Действует до завершения следующего долгого отдыха. "
-    + "Любая другая еда или вересковая медовуха заменяет этот бафф.</p>";
+    + "<p>Действует до завершения следующего долгого отдыха.</p>";
 }
 function nativeUseActivity() {
   // D&D5e 6.x needs a single ordinary utility activity so the INVENTORY'S
@@ -205,6 +204,26 @@ async function repairFoodItem(item) {
   return true;
 }
 
+/**
+ * One-time cleanup for active food buffs created by earlier module versions.
+ * Do not reroll their old HP totals or interfere with any effect mechanics:
+ * newly consumed roast portions use 1d4+2; prior active effects keep their HP
+ * until normal replacement/rest.
+ */
+async function cleanLegacyFoodEffectDescriptions() {
+  if (!game.user?.isGM) return;
+  for (const actor of game.actors?.contents ?? []) {
+    for (const effect of actor.effects ?? []) {
+      if (effect.flags?.[NS]?.foodBuff !== true) continue;
+      const previous = String(effect.description ?? "");
+      const cleaned = previous.replace(
+        " Любая другая еда или вересковая медовуха заменяет этот бафф.", ""
+      );
+      if (cleaned !== previous) await effect.update({ description: cleaned });
+    }
+  }
+}
+
 /** GM-only installer; existing world and actor items are repaired safely. */
 export async function installFoodItems() {
   if (!game.user?.isGM) throw new Error("Создание блюд доступно только ГМ.");
@@ -214,6 +233,7 @@ export async function installFoodItems() {
   for (const item of [...world, ...owned]) {
     if (foodDefinition(item)) await repairFoodItem(item);
   }
+  await cleanLegacyFoodEffectDescriptions();
   const existing = new Set(world
     .map(item => foodDefinition(item)?.id).filter(Boolean));
   const missing = FOODS.filter(food => !existing.has(food.id));
@@ -229,12 +249,25 @@ export const listFood = () => FOODS.map(food => ({
 
 async function applyFood(actor, item, food) {
   if (!actor?.isOwner) return false;
-  // Explicitly remove all former food AND the already installed mead effect.
+  // Roll temporary HP using Foundry's dice engine (and show the roll in chat),
+  // just like "Вересковая медовуха". Roll once per actual meal use.
+  let grantedTemp = 0;
+  if (food.tempHpFormula) {
+    const roll = await new Roll(food.tempHpFormula).evaluate();
+    grantedTemp = Number(roll.total);
+    if (!Number.isFinite(grantedTemp) || grantedTemp < 0)
+      throw new Error("Некорректный результат броска временных хитов: " + food.tempHpFormula);
+    await roll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor }),
+      flavor: food.name + " — " + food.buff + " (временные хиты)"
+    });
+  }
+  // A new meal still replaces the old food or heather-mead Active Effect.
   await replaceMealEffects(actor);
   const oldTemp = Number(actor.system?.attributes?.hp?.temp ?? 0);
-  const newTemp = food.tempHp ? Math.max(oldTemp, food.tempHp) : oldTemp;
+  const newTemp = food.tempHpFormula ? Math.max(oldTemp, grantedTemp) : oldTemp;
   const flags = { foodBuff: true, foodIdentifier: food.id, rerollSpent: false,
-    grantedTemporaryHp: Number(food.tempHp ?? 0),
+    grantedTemporaryHp: grantedTemp,
     displayedTemporaryHp: newTemp };
   const effect = {
     name: food.buff, img: item.img || "icons/svg/item-bag.svg",
@@ -246,7 +279,7 @@ async function applyFood(actor, item, food) {
     })),
     flags: { [NS]: flags }
   };
-  if (food.tempHp && newTemp !== oldTemp) {
+  if (food.tempHpFormula && newTemp !== oldTemp) {
     await actor.update({ "system.attributes.hp.temp": newTemp });
   }
   await actor.createEmbeddedDocuments("ActiveEffect", [effect]);
