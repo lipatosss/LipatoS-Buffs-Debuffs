@@ -92,7 +92,7 @@ function foodDefinition(item) {
   // Mastercrafted and Item Piles may copy a product without the identifier
   // we originally assigned to the world template. Exact Russian names are
   // unique and let those newly crafted items remain fully automated.
-  const name = String(item.name ?? "").trim().replace(/\\s+/g, " ").toLocaleLowerCase("ru");
+  const name = String(item.name ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("ru");
   return FOODS.find(food => food.name.toLocaleLowerCase("ru") === name) ?? null;
 }
 function ownActor(activity) {
