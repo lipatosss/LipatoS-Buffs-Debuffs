@@ -20,6 +20,13 @@ const ignoredUpdates = new Set();
 // preDeleteItem retains the originating actor while the embedded document is
 // being removed. Some inventory Use controls auto-destroy the Item directly.
 const terminalItemSnapshots = new WeakMap();
+const foodAudit = [];
+function auditFood(event, actor, item, detail = "") {
+  foodAudit.push({ event, actor: actor?.uuid ?? null, food: item?.name ?? null,
+    detail: String(detail).slice(0, 240) });
+  if (foodAudit.length > 40) foodAudit.shift();
+  console.info(NS + " | food:", foodAudit[foodAudit.length - 1]);
+}
 const FOOD_ACTIVITY_ID = "eatMeal000000001"; // Old, REMOVE on upgrade
 const USE_ACTIVITY_ID = "useFood000000001";
 
@@ -266,6 +273,7 @@ async function finalizeCharge(actor, item) {
 function runFood(actor, item, trigger, { manualConsumption = false } = {}) {
   const food = foodDefinition(item);
   if (!food || !actor?.isOwner || actor.documentName !== "Actor") return;
+  auditFood("use:" + trigger, actor, item);
   void workFor(actor, async () => {
     // A successful native "Use" action must spend exactly one charge.
     // If third-party modules bypass the dnd5e consumption pipeline,
@@ -282,8 +290,10 @@ function runFood(actor, item, trigger, { manualConsumption = false } = {}) {
     const applied = await applyFood(actor, item, food);
     if (!applied) return;
     await finalizeCharge(actor, item);
+    auditFood("applied:" + trigger, actor, item, food.buff);
     console.info(NS + " | Автоматически применена еда: " + food.name + " (" + trigger + ")");
   }).catch(error => {
+    auditFood("error:" + trigger, actor, item, error?.message ?? error);
     console.error(NS + " | Ошибка применения еды " + food.name, error);
     ui.notifications?.error?.("Не удалось применить бафф «" + food.buff + "» (F12).");
   });
@@ -418,6 +428,8 @@ Hooks.on("deleteItem", (item, options = {}, userId) => {
   terminalItemSnapshots.delete(item);
   const food = foodDefinition(item) ?? snapshot?.food;
   if (!food) return;
+  auditFood("delete:observed", snapshot?.actor ?? item.parent ?? item.actor,
+    snapshot?.item ?? item, "userId=" + String(userId ?? "none"));
   const actor = snapshot?.actor
     ?? (item.parent?.documentName === "Actor" ? item.parent : item.actor);
   if (actor?.documentName !== "Actor" || !actor.isOwner) return;
@@ -506,7 +518,8 @@ Hooks.once("ready", () => {
   const module = game.modules.get(NS);
   if (module) module.api = {
     ...(module.api ?? {}), listFoodItems: listFood,
-    installFoodItems, rerollFoodStealth: rerollStealth
+    installFoodItems, rerollFoodStealth: rerollStealth,
+    recentFoodEvents: () => foodAudit.slice()
   };
   if (game.user?.isGM && firstGM()?.id === game.user.id) {
     void installFoodItems().then(created => {
