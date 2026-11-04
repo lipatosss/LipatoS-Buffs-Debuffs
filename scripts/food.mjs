@@ -339,7 +339,9 @@ Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, result) => {
   // postUseActivity fires only after an activity has successfully activated.
   // Do NOT demand remaining item uses here: autoDestroy may have removed
   // the item, or a custom sheet may have bypassed its native consumption.
-  if (!foodDefinition(activity?.item) || !result || typeof result !== "object") return;
+  if (!foodDefinition(activity?.item) || !result || typeof result !== "object"
+      || result.cancelled === true || result.canceled === true
+      || result.aborted === true || result.success === false) return;
   const actor = ownActor(activity), key = foodKey(actor, activity.item);
   if (!actor?.isOwner || !key) return;
   const before = primed.get(key);
