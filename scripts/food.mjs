@@ -8,7 +8,8 @@ import { FoodUseTracker } from "./food-use-tracker.mjs";
 
 const NS = "lipatos-buffs-debuffs";
 const STEALTH_TART = "chernichnyy-tart-teney";
-const foodIcon = food => `modules/${NS}/icons/${food.beer ? "beers" : "foods"}/${food.id}.webp`;
+const DEFAULT_MEAL_ICON = "icons/svg/item-bag.svg";
+const foodIcon = () => DEFAULT_MEAL_ICON;
 const ADD = 2; // CONST.ACTIVE_EFFECT_MODES.ADD
 const tasks = new Map();
 const useTracker = new FoodUseTracker();
@@ -138,6 +139,12 @@ const BEERS = Object.freeze([
 ]);
 
 const ALL_MEALS = [...FOODS, ...BEERS];
+// Only the exact 13 image paths shipped by older releases are migrated.
+// Other paths may be custom icons selected by the GM and must be preserved.
+const BUNDLED_MEAL_ICONS = new Set(ALL_MEALS.map(food =>
+  `modules/${NS}/icons/${food.beer ? "beers" : "foods"}/${food.id}.webp`
+));
+const isOldBundledMealIcon = img => BUNDLED_MEAL_ICONS.has(String(img ?? "").split("?")[0]);
 const byId = new Map(ALL_MEALS.map(food => [food.id, food]));
 
 function foodDefinition(item) {
@@ -222,8 +229,9 @@ async function repairFoodItem(item) {
   const food = foodDefinition(item);
   if (!food) return false;
   const patch = {};
-  const image = foodIcon(food);
-  if (item.img !== image) patch.img = image;
+  // One-time migration from image files removed in v0.6.26. Never overwrite
+  // a manually configured icon, even after crafting or on future restarts.
+  if (isOldBundledMealIcon(item.img)) patch.img = DEFAULT_MEAL_ICON;
   if (food.beer && item.flags?.[NS]?.brewedBeer !== true)
     patch["flags." + NS + ".brewedBeer"] = true;
   // Existing crafted and world items must also stop displaying the old fixed
@@ -275,7 +283,10 @@ async function cleanLegacyFoodEffectDescriptions() {
       const cleaned = previous.replace(
         " Любая другая еда или вересковая медовуха заменяет этот бафф.", ""
       );
-      if (cleaned !== previous) await effect.update({ description: cleaned });
+      const patch = {};
+      if (cleaned !== previous) patch.description = cleaned;
+      if (isOldBundledMealIcon(effect.img)) patch.img = DEFAULT_MEAL_ICON;
+      if (Object.keys(patch).length) await effect.update(patch);
     }
   }
 }
