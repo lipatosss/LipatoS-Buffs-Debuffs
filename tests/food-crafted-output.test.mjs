@@ -91,7 +91,9 @@ test("Mastercrafted output is repaired, consumed and automatically buffs actor",
   assert.equal(fish.system.identifier, "uha-tumannogo-berega");
   assert.equal(fish.system.type.value, "food");
   assert.equal(fish.system.uses.max, "1");
-  assert.ok(fish.system.activities.eatMeal000000001);
+  assert.ok(fish.system.activities.useFood000000001);
+  assert.equal(fish.system.activities.useFood000000001.name, "Использовать");
+  assert.ok(!fish.system.activities.eatMeal000000001);
   assert.ok(fish.img.endsWith("uha-tumannogo-berega.webp"));
 
   // Some sheet modules report postUse without sending a native charge update.
