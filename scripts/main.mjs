@@ -1,4 +1,6 @@
 import './heather-mead.mjs';
+import './food.mjs';
+import {canRerollStealth, rerollStealth} from './food.mjs';
 import {decoratePips,getHunger,STEP} from './hunger.mjs';
 import {keepBarAnchored} from './panel-position.mjs';
 // No roll guard: the D&D5e exhaustion condition already applies 2014 penalties.
@@ -65,6 +67,23 @@ function makeIcon(effect, actor) {
     }).catch(() => { if (holder.isConnected) details.textContent = 'Описание недоступно.'; });
   }
   tooltip.append(heading, details);
+  if (actor?.isOwner && canRerollStealth(effect)) {
+    holder.classList.add('lipatos-food-action');
+    holder.setAttribute('role', 'button');
+    holder.setAttribute('aria-label', 'Перебросить Скрытность (один раз)');
+    const click = async () => {
+      try { await rerollStealth(actor); }
+      catch (error) { console.error(ID + ' | food stealth reroll', error);
+        ui.notifications?.error?.('Не удалось перебросить Скрытность (F12).'); }
+    };
+    holder.addEventListener('click', click);
+    holder.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault(); void click();
+      }
+    });
+  }
+
   const show = () => {
     const rect = holder.getBoundingClientRect();
     tooltip.style.top = `${Math.max(8, Math.min(window.innerHeight - 125, rect.bottom + 8))}px`;
