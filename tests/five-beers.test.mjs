@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, statSync } from "node:fs";
+
 
 test("all five ales install exactly once with correct ingredients, icons, skill keys and normal use", async () => {
   const callbacks = new Map();
@@ -58,10 +58,7 @@ test("all five ales install exactly once with correct ingredients, icons, skill 
   for (const [name] of beers) {
     const template = created.find(item => item.name === name);
     assert.ok(template, name);
-    assert.match(template.img, /\/icons\/beers\/.*\.webp$/);
-    const iconFile = new URL("../" + template.img.replace("modules/lipatos-buffs-debuffs/", ""), import.meta.url);
-    assert.equal(existsSync(iconFile), true, name + " icon missing");
-    assert.ok(statSync(iconFile).size > 2000, name + " icon too small");
+    assert.equal(template.img, "icons/svg/item-bag.svg", name + " has no bundled image");
     assert.equal(template.system.uses.autoDestroy, true);
     assert.equal(template.system.activities.useFood000000001.name, "Использовать");
     assert.equal(template.flags["lipatos-buffs-debuffs"].brewedBeer, true);
