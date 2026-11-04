@@ -1,7 +1,7 @@
 name: Food consumption regression tests
 on:
   push:
-    branches: [fix/food-use-deletion-v0-6-23, main]
+    branches: ['fix/**', 'feature/**', main]
     paths:
       - 'scripts/**'
       - 'tests/**'
