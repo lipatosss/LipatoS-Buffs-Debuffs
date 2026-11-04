@@ -127,7 +127,7 @@ function makeItem(food) {
       weight: { value: food.weight, units: "lb" },
       price: { value: food.portionSp, denomination: "sp" },
       rarity: "common",
-      uses: { spent: 0, max: "1", recovery: [], autoDestroy: true },
+      uses: { spent: 0, max: "1", recovery: [], prompt: false, autoDestroy: true },
       activities: {
         eatMeal000000001: {
           type: "utility", name: "Съесть",
