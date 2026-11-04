@@ -137,18 +137,7 @@ function makeItem(food) {
       weight: { value: food.weight, units: "lb" },
       price: { value: food.portionSp, denomination: "sp" },
       rarity: "common",
-      uses: { spent: 0, max: "1", recovery: [], prompt: false, autoDestroy: true },
-      activities: {
-        [FOOD_ACTIVITY_ID]: {
-          type: "utility", name: "Съесть",
-          activation: { type: "action", value: 1, condition: "" },
-          consumption: {
-            targets: [{ type: "itemUses", target: "", value: "1",
-              scaling: { mode: "", formula: "" } }],
-            scaling: { allowed: false }
-          }
-        }
-      }
+      uses: { spent: 0, max: "1", recovery: [], prompt: false, autoDestroy: true }
     },
     flags: { [NS]: { cookedFood: true, recipeDc: food.dc,
       batchYield: food.batch, batchCostCp: food.batchCp,
@@ -176,12 +165,11 @@ async function repairFoodItem(item) {
   if (uses.autoDestroy !== true) patch["system.uses.autoDestroy"] = true;
   if (uses.prompt !== false) patch["system.uses.prompt"] = false;
   const raw = item.toObject?.()?.system?.activities ?? {};
-  const ownActivity = raw[FOOD_ACTIVITY_ID];
-  const target = ownActivity?.consumption?.targets?.find(t =>
-    t.type === "itemUses" && Number(t.value) === 1);
-  if (!target) {
-    patch["system.activities." + FOOD_ACTIVITY_ID] =
-      makeItem(food).system.activities[FOOD_ACTIVITY_ID];
+  // Previous releases injected a separate "Съесть" utility activity.
+  // Remove ONLY that synthetic activity, never touch the user's native
+  // "Использовать" action or other configured item activities.
+  if (raw[FOOD_ACTIVITY_ID]) {
+    patch["system.activities.-=" + FOOD_ACTIVITY_ID] = null;
   }
   if (!Object.keys(patch).length) return false;
   await item.update(patch);
@@ -331,8 +319,13 @@ Hooks.on("updateItem", (item, changed, options, userId) => {
   const entry = primed.get(key);
   const usedPortion = entry && Date.now() - entry.time < 30000
     && quantity !== undefined && Number(quantity) < entry.quantity;
-  if ((usedCharge || usedPortion) && useTracker.itemUpdated(key)) {
+  // Exactly like heather-mead.mjs: a confirmed charge spend needs NO
+  // preliminary activity hook. A direct "Использовать" click in the 5e
+  // inventory often updates the document without preUseActivity.
+  if (usedCharge && useTracker.itemUpdated(key, { acceptUnprimed: true })) {
     runFood(actor, item, "updateItem");
+  } else if (usedPortion && useTracker.itemUpdated(key, { acceptUnprimed: true })) {
+    runFood(actor, item, "updateItem-quantity");
   }
 });
 Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, result) => {
