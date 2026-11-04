@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "Исправлено применение баффов при прямом autoDestroy: если Использовать удаляет порцию без updateItem и событий активности, обработчик удаления всё равно выдаёт эффект. Есть защита от повторного наложения и журнал событий для диагностики.",
-  "version": "0.6.23",
+  "description": "У жаркого из дикого кабана временные хиты определяются броском 1d4+2 с сообщением в чат. Убрана лишняя фраза о замене баффов из описаний всех блюд; прежние описания автоматически исправляются.",
+  "version": "0.6.24",
   "authors": [
     {
       "name": "LipatoS",
@@ -35,5 +35,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.23/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.24/lipatos-buffs-debuffs.zip"
 }
