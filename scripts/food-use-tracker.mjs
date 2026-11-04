@@ -59,12 +59,14 @@ export class FoodUseTracker {
     return this._claim(ticket);
   }
   /** A real observed item charge/quantity reduction is a fallback. */
-  itemUpdated(key) {
+  itemUpdated(key, { acceptUnprimed = false } = {}) {
     if (!key) return false;
-    // If the update is delivered after postActivityConsumption, this same
-    // ticket must absorb it. Don't consume the next activation's ticket.
-    const ticket = this._queue(key).find(t => !t.updateSeen);
-    if (!ticket) return false; // Manual edit without an activated item is not food.
+    // The item's normal Use button can spend an item charge WITHOUT calling
+    // dnd5e.preUseActivity. Heather mead handles this native update directly.
+    // Here a confirmed item-use spend is independent evidence of consumption.
+    const ticket = this._queue(key).find(t => !t.updateSeen)
+      ?? (acceptUnprimed ? this._new(key, null) : null);
+    if (!ticket) return false;
     ticket.updateSeen = true;
     return this._claim(ticket);
   }

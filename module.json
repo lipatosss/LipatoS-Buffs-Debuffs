@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "Исправлена автоматизация готовых блюд после крафта Mastercrafted: распознавание по точному названию, настройка расходуемого предмета и активности Съесть, гарантированный расход одной порции и наложение баффа даже при отсутствии событий штатного списания.",
-  "version": "0.6.21",
+  "description": "Исправлено применение баффов всех восьми блюд при обычной кнопке Использовать: распознаём списание заряда напрямую, как у вересковой медовухи, без preUseActivity; убрана активность Съесть; сохраняются остальные действия и автоудаление порции.",
+  "version": "0.6.22",
   "authors": [
     {
       "name": "LipatoS",
@@ -35,5 +35,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.21/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.22/lipatos-buffs-debuffs.zip"
 }
