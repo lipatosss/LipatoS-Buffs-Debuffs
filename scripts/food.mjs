@@ -306,8 +306,16 @@ Hooks.on("dnd5e.postActivityConsumption", (activity, usageConfig) => {
   // This hook is called by dnd5e after it has performed the consumption.
   // Do not depend on item still being present after autoDestroy.
   if (useTracker.consumed(key, usageConfig)) {
-    console.info(NS + " | Списана еда (postActivityConsumption):", food.name);
-    runFood(actor, item, "postActivityConsumption");
+    // Native versions & third-party sheets may report successful use without
+    // spending the charge. Make consumption real, but NEVER consume twice.
+    const owned = actor.items?.get?.(item.id);
+    const before = primed.get(key);
+    const chargeSpent = Number(owned?.system?.uses?.spent ?? 0) > 0;
+    const portionSpent = Boolean(before && owned &&
+      Number(owned.system?.quantity ?? 1) < before.quantity);
+    console.info(NS + " | Завершено употребление (postActivityConsumption):", food.name);
+    runFood(actor, item, "postActivityConsumption",
+      { manualConsumption: Boolean(owned && !chargeSpent && !portionSpent) });
   }
 });
 
