@@ -46,7 +46,7 @@ test("all six ales install exactly once with correct ingredients, icons, skill k
   const installed = await food.installBeerItems();
   assert.equal(installed.length, 6);
   assert.equal((await food.installBeerItems()).length, 0);
-  assert.equal(food.listFood().length, 11);
+  assert.equal(food.listFood().length, 12);
   assert.equal(food.listBeerItems().length, 6);
   const beers = [
     ["Весёлый трубадур", "Хмельная удаль", "system.skills.prf.roll.bonus"],
