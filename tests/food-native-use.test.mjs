@@ -71,7 +71,7 @@ test("all eight meals apply buffs from the native Item charge update without act
     ["Лунный творожный пудинг", "Ясный разум"]
   ];
 
-  // Existing mead effect must be replaced by eating.
+  // Existing drink buff must survive eating, including legacy mead effects.
   actor.effects.push({ id: "oldMead",
     flags: { "lipatos-buffs-debuffs": {
       heatherWarmth: true, lastRoll: 0, displayedTemp: 0
@@ -99,22 +99,24 @@ test("all eight meals apply buffs from the native Item charge update without act
     // No pre-use, no crafted activity, just the direct item-use spend.
     fire("updateItem", food, { system: { uses: { spent: 1 } } }, {}, "gm");
     await settle();
-    assert.equal(actor.effects.length, 1, name + " must replace old food/mead effect");
-    assert.equal(actor.effects[0].name, expectedBuff);
+    assert.equal(actor.effects.length, 2, name + " replaces only previous food");
+    assert.ok(actor.effects.some(e => e.id === "oldMead"), "Mead must survive eating");
+    assert.equal(actor.effects.find(e => e.flags?.["lipatos-buffs-debuffs"]?.foodBuff)?.name, expectedBuff);
     assert.equal(actor.items.get(food.id), null, name + " charge 1 must destroy the portion");
 
     // Mead-like fallback must NOT duplicate the buff on a late postUse event.
     const result = { updates: {} };
     fire("dnd5e.postUseActivity", { actor, item: { ...food } }, {}, result);
     await settle();
-    assert.equal(actor.effects.length, 1, name + " late post-use must not duplicate");
+    assert.equal(actor.effects.length, 2, name + " late post-use must not duplicate");
   }
 
   assert.equal(actor.system.attributes.hp.temp, 0,
     "Temporary HP from roast must be replaced by the next meal");
   fire("dnd5e.restCompleted", actor, { longRest: true }, { type: "long" });
   await settle();
-  assert.equal(actor.effects.length, 0, "Food buffs expire after long rest");
+  assert.equal(actor.effects.length, 1, "Food hooks clear food buffs; mead has its own rest hook");
+  assert.equal(actor.effects[0].id, "oldMead");
 });
 
 test("untouched consumables and manual item deletion do not grant meal effects", async () => {
