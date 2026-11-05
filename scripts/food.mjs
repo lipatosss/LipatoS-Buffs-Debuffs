@@ -8,11 +8,6 @@ import { FoodUseTracker } from "./food-use-tracker.mjs";
 
 const NS = "lipatos-buffs-debuffs";
 const STEALTH_TART = "chernichnyy-tart-teney";
-const PROFESSION_ALIASES = Object.freeze({
-  fishing: ["рыболов", "рыбал", "рыба", "fishing", "fishery", "angling", "rybolov", "rybal"],
-  brewing: ["пивовар", "brewing", "brew", "pivovar"],
-  winemaking: ["винодел", "winemaking", "winery", "viticulture", "vinodel"]
-});
 const DEFAULT_MEAL_ICON = "icons/svg/item-bag.svg";
 const foodIcon = () => DEFAULT_MEAL_ICON;
 const ADD = 2; // CONST.ACTIVE_EFFECT_MODES.ADD
@@ -118,11 +113,11 @@ const FOODS = Object.freeze([
   },
   {
     id: "onigiri", name: "Онигири", buff: "Тонкий вкус мастера",
-    effect: "+2 к проверкам ремёсел «Пивоварение» и «Виноделие».",
+    effect: "+2 к проверкам ремесла «Пивоварение и виноделие».",
     description: "Плотные треугольники тёплого риса с солёной начинкой бережно обёрнуты листами водорослей. Скромная закуска очищает вкус и позволяет тоньше различать хмельные, солодовые и винные оттенки.",
     dc: 11, batch: 3, batchCp: 75, recipeGp: 55, portionSp: 7, weight: 0.4,
     components: ["Рис ×2", "Морская рыба ×1", "Водоросли ×1", "Соль ×1", "Уксус ×1"],
-    professionBonuses: ["brewing", "winemaking"]
+    professionBonuses: ["brewing"]
   }
 ]);
 
@@ -278,6 +273,15 @@ async function repairFoodItem(item) {
   // Existing crafted and world items must also stop displaying the old fixed
   // "8 temporary HP" text; preserve all unrelated custom description fields.
   const oldDescription = String(item.system?.description?.value ?? "");
+  if (food.id === "onigiri" && oldDescription.includes("ремёсел «Пивоварение» и «Виноделие»")) {
+    patch["system.description.value"] = oldDescription.replace(
+      "ремёсел «Пивоварение» и «Виноделие»", "ремесла «Пивоварение и виноделие»"
+    );
+  }
+  if (food.professionBonuses?.length
+      && JSON.stringify(item.flags?.[NS]?.professionBonuses ?? []) !== JSON.stringify(food.professionBonuses)) {
+    patch["flags." + NS + ".professionBonuses"] = [...food.professionBonuses];
+  }
   if (food.tempHpFormula && /8\s+(?:временных|бонусных)\s+хитов/i.test(oldDescription)) {
     patch["system.description.value"] = oldDescription.replace(
       /8\s+(?:временных|бонусных)\s+хитов/gi,
@@ -377,41 +381,9 @@ export const listBeerItems = () => BEERS.map(beer => ({
 }));
 
 
-/**
- * Resolve the user's custom professions by their real Actor data keys.
- * LipatoS-professions isn't bundled with this module and has no guaranteed
- * public key names: never silently invent a skill ID that may not exist.
- * Handles professions exposed as dnd5e custom skills, tools or profession data.
- */
-export function resolveProfessionChanges(actor, professions = []) {
-  const result = new Map();
-  const config = globalThis.CONFIG?.DND5E ?? {};
-  const localize = text => {
-    if (typeof text !== "string") return "";
-    try { return game.i18n?.localize?.(text) ?? text; } catch { return text; }
-  };
-  const normalize = value => String(value ?? "").toLocaleLowerCase("ru").replace(/[\\s_\\-]/g, "");
-  for (const [group, records] of [
-    ["skills", actor?.system?.skills],
-    ["tools", actor?.system?.tools],
-    ["professions", actor?.system?.professions]
-  ]) {
-    if (!records || typeof records !== "object") continue;
-    for (const [id, data] of Object.entries(records)) {
-      if (!/^[a-zA-Z0-9_-]+$/.test(id)) continue;
-      const configEntry = config[group]?.[id];
-      const labels = [id, data?.label, data?.name, data?.title,
-        configEntry?.label ?? configEntry, localize(configEntry?.label ?? configEntry)]
-        .filter(x => typeof x === "string").map(normalize);
-      const matches = professions.some(name =>
-        (PROFESSION_ALIASES[name] ?? []).some(alias => labels.some(label => label.includes(normalize(alias))))
-      );
-      if (matches) result.set(`system.${group}.${id}.roll.bonus`, "2");
-    }
-  }
-  return [...result.entries()];
-}
-
+// Profession bonuses are consumed by the real LipatoS-professions module
+// from the actor effect's professionBonuses flag at roll time. Never mutate
+// character proficiency flags or invent dnd5e skill keys.
 async function applyFood(actor, item, food) {
   if (!actor?.isOwner) return false;
   // Roll temporary HP using Foundry's dice engine (and show the roll in chat),
@@ -431,11 +403,6 @@ async function applyFood(actor, item, food) {
   await replaceMealEffects(actor);
   const oldTemp = Number(actor.system?.attributes?.hp?.temp ?? 0);
   const newTemp = food.tempHpFormula ? Math.max(oldTemp, grantedTemp) : oldTemp;
-  const professionChanges = resolveProfessionChanges(actor, food.professionBonuses ?? []);
-  if (food.professionBonuses?.length && !professionChanges.length) {
-    console.warn(NS + " | Ремесло не найдено в данных персонажа. Проверьте совместимость LipatoS-professions:", food.professionBonuses);
-    ui.notifications?.warn?.("LipatoS: ремесло для «" + food.name + "» не найдено в данных персонажа; бонус +2 не применён.");
-  }
   const flags = { foodBuff: true, foodIdentifier: food.id, rerollSpent: false,
     professionBonuses: food.professionBonuses ?? [],
     grantedTemporaryHp: grantedTemp,
@@ -445,7 +412,7 @@ async function applyFood(actor, item, food) {
     description: mealDescription(food), origin: item.uuid,
     type: "base", disabled: false, transfer: false,
     duration: { startTime: Number(game.time?.worldTime ?? 0) },
-    changes: [...(food.changes ?? []), ...professionChanges].map(([key, value]) => ({
+    changes: (food.changes ?? []).map(([key, value]) => ({
       key, value, mode: ADD, priority: 20
     })),
     flags: { [NS]: flags }
@@ -738,7 +705,7 @@ Hooks.once("ready", () => {
   const module = game.modules.get(NS);
   if (module) module.api = {
     ...(module.api ?? {}), listFoodItems: listFood, listBeerItems,
-    installFoodItems, installBeerItems, resolveProfessionChanges, rerollFoodStealth: rerollStealth,
+    installFoodItems, installBeerItems, rerollFoodStealth: rerollStealth,
     recentFoodEvents: () => foodAudit.slice()
   };
   if (game.user?.isGM && firstGM()?.id === game.user.id) {
