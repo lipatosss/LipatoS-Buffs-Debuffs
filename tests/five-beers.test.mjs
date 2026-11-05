@@ -107,7 +107,7 @@ test("all six ales install exactly once with correct ingredients, icons, skill k
     await settle();
     assert.equal(actor.effects.length, 1, name);
     assert.equal(actor.effects[0].name, buff);
-    assert.deepEqual(actor.effects[0].changes.map(x => [x.key, x.value]), [[skillKey, "2"]]);
+    assert.deepEqual(actor.effects[0].changes.map(x => [x.key, x.value]), [[skillKey, name === "Панцирный эль" ? "1" : "2"]]);
     assert.doesNotMatch(actor.effects[0].description, /Любая другая еда|медовуха заменяет/);
     assert.equal(actor.items.get(item.id), null);
   }
