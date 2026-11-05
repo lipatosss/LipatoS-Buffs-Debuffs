@@ -100,7 +100,7 @@ test("using food and drink retains one buff in each channel, medovukha also repl
     async toMessage() {}
   };
   globalThis.ChatMessage = { getSpeaker: ({actor}) => ({alias:actor.uuid}) };
-  const module = { active: true, api: { giveHeatherEmptyBottle: async () => {},
+  const module = { active: false, api: { giveHeatherEmptyBottle: async () => {},
     feed: async () => {} } };
   globalThis.game = {
     modules: { get: () => module }, user: { isGM: false, id: "owner" },
