@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-test("four new consumables carry exact buff keys and expose real profession bonuses", async () => {
+test("new consumables carry exact buff keys and expose real profession bonuses", async () => {
   const hookCallbacks = new Map();
   globalThis.Hooks = {
     on(event, callback) { hookCallbacks.set(event, [...(hookCallbacks.get(event) ?? []), callback]); },
@@ -22,9 +22,9 @@ test("four new consumables carry exact buff keys and expose real profession bonu
     items.push(...docs); return docs;
   }};
   const food = await import("../scripts/food.mjs");
-  assert.equal((await food.installFoodItems()).length, 11);
+  assert.equal((await food.installFoodItems()).length, 12);
   assert.equal((await food.installBeerItems()).length, 6);
-  const newNames = ["Королевский клешняр в чесночном масле", "Рыбное сашими", "Онигири", "Панцирный эль"];
+  const newNames = ["Королевский клешняр в чесночном масле", "Рыбное сашими", "Онигири", "Панцирный эль", "Жемчужные гнёзда длинноусов"];
   for (const name of newNames) {
     const item = items.find(it => it.name === name);
     assert.ok(item, name);
@@ -54,7 +54,7 @@ test("four new consumables carry exact buff keys and expose real profession bonu
   let sequence = 0;
   const fire = (event,...args) => { for (const cb of hookCallbacks.get(event) ?? []) cb(...args); };
   const settle = async () => { for(let i=0;i<24;i++) await new Promise(r=>setImmediate(r)); };
-  for (const name of ["Панцирный эль", "Королевский клешняр в чесночном масле", "Рыбное сашими", "Онигири"]) {
+  for (const name of ["Панцирный эль", "Королевский клешняр в чесночном масле", "Рыбное сашими", "Онигири", "Жемчужные гнёзда длинноусов"]) {
     const template = items.find(it => it.name===name);
     const item = {
       ...template, id:"owned-"+(++sequence), actor:mockActor, parent:mockActor,
@@ -72,7 +72,8 @@ test("four new consumables carry exact buff keys and expose real profession bonu
       "Панцирный эль":"Багровый панцирь",
       "Королевский клешняр в чесночном масле":"Королевская меткость",
       "Рыбное сашими":"Чутьё рыболова",
-      "Онигири":"Тонкий вкус мастера"
+      "Онигири":"Тонкий вкус мастера",
+      "Жемчужные гнёзда длинноусов":"Чуткость алхимика"
     }[name];
     const currentBuff = mockActor.effects.find(e => e.name === expectedBuff);
     assert.ok(currentBuff, name);
@@ -92,6 +93,18 @@ test("four new consumables carry exact buff keys and expose real profession bonu
       assert.deepEqual(keys, [], "Never mutate non-existent dnd5e skill keys");
       assert.deepEqual(currentBuff.flags["lipatos-buffs-debuffs"].professionBonuses, ["brewing"]);
       assert.match(template.system.description.value, /Пивоварение и виноделие/);
+    }
+    if(name==="Жемчужные гнёзда длинноусов") {
+      assert.deepEqual(keys, [], "Alchemy bonus is read from effect flags by LipatoS-professions");
+      assert.equal(currentBuff.flags["lipatos-buffs-debuffs"].mealChannel, "food");
+      assert.deepEqual(currentBuff.flags["lipatos-buffs-debuffs"].professionBonuses, ["alchemy"]);
+      assert.match(template.system.description.value, /Длинноус ×4/);
+      assert.match(template.system.description.value, /Чуткость алхимика/);
+      assert.equal(template.system.rarity, "uncommon");
+      assert.equal(template.system.price.value, 13);
+      assert.equal(template.system.weight.value, 0.6);
+      assert.equal(template.flags["lipatos-buffs-debuffs"].recipeDc, 13);
+      assert.equal(template.flags["lipatos-buffs-debuffs"].batchYield, 2);
     }
   }
   assert.equal(returned.length,1,"Only ale returns an empty bottle");
