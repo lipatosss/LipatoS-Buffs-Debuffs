@@ -66,25 +66,31 @@ test("four new consumables carry exact buff keys and expose real profession bonu
     item.system.uses.spent = 1;
     fire("updateItem", item, { system: { uses: { spent: 1 } } }, {}, "gm");
     await settle();
-    assert.equal(mockActor.effects.length,1,name);
-    assert.equal(mockActor.effects[0].name, {
+    // One food and one drink may coexist; subsequent meals replace only food.
+    assert.equal(mockActor.effects.length, name === "Панцирный эль" ? 1 : 2, name);
+    const expectedBuff = {
       "Панцирный эль":"Багровый панцирь",
       "Королевский клешняр в чесночном масле":"Королевская меткость",
       "Рыбное сашими":"Чутьё рыболова",
       "Онигири":"Тонкий вкус мастера"
-    }[name]);
-    const keys=mockActor.effects[0].changes.map(x=>x.key);
+    }[name];
+    const currentBuff = mockActor.effects.find(e => e.name === expectedBuff);
+    assert.ok(currentBuff, name);
+    assert.equal(mockActor.effects.filter(e =>
+      e.flags["lipatos-buffs-debuffs"].mealChannel === "drink").length, 1,
+      "The ale buff persists while another dish is consumed");
+    const keys=currentBuff.changes.map(x=>x.key);
     if(name==="Панцирный эль") assert.deepEqual(keys,["system.attributes.ac.bonus"]);
     if(name==="Королевский клешняр в чесночном масле") {
       assert.deepEqual(keys,["system.rolls.attack.mwak.bonus","system.rolls.attack.rwak.bonus"]);
     }
     if(name==="Рыбное сашими") {
       assert.deepEqual(keys, [], "Profession bonus is read from effect flags at roll time");
-      assert.deepEqual(mockActor.effects[0].flags["lipatos-buffs-debuffs"].professionBonuses, ["fishing"]);
+      assert.deepEqual(currentBuff.flags["lipatos-buffs-debuffs"].professionBonuses, ["fishing"]);
     }
     if(name==="Онигири") {
       assert.deepEqual(keys, [], "Never mutate non-existent dnd5e skill keys");
-      assert.deepEqual(mockActor.effects[0].flags["lipatos-buffs-debuffs"].professionBonuses, ["brewing"]);
+      assert.deepEqual(currentBuff.flags["lipatos-buffs-debuffs"].professionBonuses, ["brewing"]);
       assert.match(template.system.description.value, /Пивоварение и виноделие/);
     }
   }

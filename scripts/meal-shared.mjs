@@ -1,12 +1,30 @@
-/** Shared, actor-local exclusivity for Heather mead and cooked food. */
+/**
+ * One active cooked-food buff and one active alcoholic drink buff per actor.
+ * Both categories are independent: a meal cannot dispel a drink or vice versa.
+ *
+ * Some v0.6.28 drink effects only had foodBuff + foodIdentifier, so recognize
+ * them by their known IDs. New effects carry an explicit mealChannel.
+ */
 const NS = "lipatos-buffs-debuffs";
 const UNIQUE = "lipatos-aindor-unique-items";
+const LEGACY_DRINKS = new Set([
+  "veselyy-trubadur", "kabanya-yarost-pivo", "lesnoy-shepot",
+  "pastushiy-el", "shalfejnyj-el", "pancirnyy-el"
+]);
+
+export function mealEffectChannel(effect) {
+  if (!effect) return null;
+  const food = effect.flags?.[NS];
+  if (food?.heatherWarmth === true || effect.flags?.[UNIQUE]?.heatherWarmth === true)
+    return "drink";
+  if (food?.foodBuff !== true) return null;
+  if (food.mealChannel === "drink" || food.brewedBeer === true
+      || LEGACY_DRINKS.has(String(food.foodIdentifier ?? ""))) return "drink";
+  return "food";
+}
 
 export function isMealEffect(effect) {
-  if (!effect) return false;
-  return effect.flags?.[NS]?.foodBuff === true
-    || effect.flags?.[NS]?.heatherWarmth === true
-    || effect.flags?.[UNIQUE]?.heatherWarmth === true;
+  return mealEffectChannel(effect) !== null;
 }
 
 function grantedTemporaryHp(effect) {
@@ -21,14 +39,16 @@ function grantedTemporaryHp(effect) {
 }
 
 /**
- * Remove ONLY meal buffs owned by this module or its existing mead feature.
- * Never delete class, spell, magic item, hunger or unrelated effects.
- * A granted temporary HP pool is cleared only when it is identifiable as
- * the meal's own pool; stronger, unrelated temp HP remain untouched.
+ * Replace only the requested category ("food" or "drink"), preserving all
+ * unrelated effects and the other meal category.
+ * Clear a replaced effect's temporary HP only when its own tracked grant is
+ * still identifiable as the current pool; never clear stronger unrelated HP.
  */
-export async function replaceMealEffects(actor) {
+export async function replaceMealEffects(actor, channel) {
+  if (channel !== "food" && channel !== "drink")
+    throw new Error("Unknown meal channel: " + channel);
   if (!actor?.effects) return;
-  const current = [...actor.effects].filter(isMealEffect)
+  const current = [...actor.effects].filter(effect => mealEffectChannel(effect) === channel)
     .filter(effect => effect.id && actor.effects.get(effect.id));
   if (!current.length) return;
   const temporary = Number(actor.system?.attributes?.hp?.temp ?? 0);

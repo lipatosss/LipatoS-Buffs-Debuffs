@@ -400,10 +400,11 @@ async function applyFood(actor, item, food) {
     });
   }
   // A new meal still replaces the old food or heather-mead Active Effect.
-  await replaceMealEffects(actor);
+  await replaceMealEffects(actor, food.beer ? "drink" : "food");
   const oldTemp = Number(actor.system?.attributes?.hp?.temp ?? 0);
   const newTemp = food.tempHpFormula ? Math.max(oldTemp, grantedTemp) : oldTemp;
-  const flags = { foodBuff: true, foodIdentifier: food.id, rerollSpent: false,
+  const flags = { foodBuff: true, foodIdentifier: food.id,
+    mealChannel: food.beer ? "drink" : "food", rerollSpent: false,
     professionBonuses: food.professionBonuses ?? [],
     grantedTemporaryHp: grantedTemp,
     displayedTemporaryHp: newTemp };

@@ -155,7 +155,7 @@ async function heatherApply(item, actor) {
     });
     const rolled = Number(roll.total);
     if (!Number.isFinite(rolled)) throw new Error("Некорректный результат 1к4 + 1");
-    await replaceMealEffects(actor);
+    await replaceMealEffects(actor, "drink");
     const previousTemp = Number(actor.system?.attributes?.hp?.temp ?? 0);
     const appliedTemp = Math.max(previousTemp, rolled);
     const now = heatherTime();
