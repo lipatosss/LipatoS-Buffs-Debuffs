@@ -8,6 +8,11 @@ import { FoodUseTracker } from "./food-use-tracker.mjs";
 
 const NS = "lipatos-buffs-debuffs";
 const STEALTH_TART = "chernichnyy-tart-teney";
+const PROFESSION_ALIASES = Object.freeze({
+  fishing: ["рыболов", "рыбал", "рыба", "fishing", "fishery", "angling", "rybolov", "rybal"],
+  brewing: ["пивовар", "brewing", "brew", "pivovar"],
+  winemaking: ["винодел", "winemaking", "winery", "viticulture", "vinodel"]
+});
 const DEFAULT_MEAL_ICON = "icons/svg/item-bag.svg";
 const foodIcon = () => DEFAULT_MEAL_ICON;
 const ADD = 2; // CONST.ACTIVE_EFFECT_MODES.ADD
@@ -91,6 +96,33 @@ const FOODS = Object.freeze([
     dc: 15, batch: 2, batchCp: 92, recipeGp: 100, portionSp: 12, weight: 0.5, dessert: true,
     components: ["Творог ×2", "Молоко ×1", "Яйцо ×1", "Мёд ×1", "Лунные ягоды ×1"],
     changes: [["system.attributes.concentration.roll.bonus", "2"]]
+  },
+  {
+    id: "korolevskiy-kleshnyar-v-chesnochnom-masle",
+    name: "Королевский клешняр в чесночном масле",
+    buff: "Королевская меткость",
+    effect: "+1 к броскам атаки любым оружием ближнего и дальнего боя (не заклинаниям).",
+    description: "Сочное белоснежное мясо королевского клешняра запекают в алом панцире под растопленным чесночным маслом с шалфеем. Нежная сладость морского мяса и пряный аромат придают рукам едока уверенную точность.",
+    dc: 14, batch: 2, batchCp: 195, recipeGp: 110, portionSp: 18, weight: 1,
+    components: ["Королевский клешняр ×1", "Сливочное масло ×1", "Чеснок ×2", "Шалфей ×1", "Соль ×1", "Лимон ×1"],
+    changes: [["system.rolls.attack.mwak.bonus", "1"], ["system.rolls.attack.rwak.bonus", "1"]],
+    rarity: "uncommon"
+  },
+  {
+    id: "rybnoe-sashimi", name: "Рыбное сашими", buff: "Чутьё рыболова",
+    effect: "+2 к проверкам ремесла «Рыболовство».",
+    description: "Тонкие, аккуратно нарезанные ломтики свежеподготовленного морского филе выложены веером на охлаждённой тарелке. Чистый вкус рыбы, капля цитруса и щепоть морской соли пробуждают тонкое понимание подводной добычи.",
+    dc: 12, batch: 2, batchCp: 105, recipeGp: 65, portionSp: 10, weight: 0.5,
+    components: ["Морская рыба ×2", "Лимон ×1", "Морская соль ×1", "Пряные травы ×1"],
+    professionBonuses: ["fishing"], rarity: "uncommon"
+  },
+  {
+    id: "onigiri", name: "Онигири", buff: "Тонкий вкус мастера",
+    effect: "+2 к проверкам ремёсел «Пивоварение» и «Виноделие».",
+    description: "Плотные треугольники тёплого риса с солёной начинкой бережно обёрнуты листами водорослей. Скромная закуска очищает вкус и позволяет тоньше различать хмельные, солодовые и винные оттенки.",
+    dc: 11, batch: 3, batchCp: 75, recipeGp: 55, portionSp: 7, weight: 0.4,
+    components: ["Рис ×2", "Морская рыба ×1", "Водоросли ×1", "Соль ×1", "Уксус ×1"],
+    professionBonuses: ["brewing", "winemaking"]
   }
 ]);
 
@@ -135,6 +167,14 @@ const BEERS = Object.freeze([
     dc: 13, batch: 3, batchCp: 84, recipeGp: 80, portionSp: 12, weight: 1,
     components: ["Пшеница ×2", "Хмель ×1", "Шалфей ×2", "Мёд ×1", "Дрожжи ×1", "Чистая вода ×1"],
     changes: [["system.skills.med.roll.bonus", "2"]], beer: true
+  },
+  {
+    id: "pancirnyy-el", name: "Панцирный эль", buff: "Багровый панцирь",
+    effect: "+1 к классу доспеха (КД).",
+    description: "Густой багрово-янтарный эль с медной пеной варят на отваре из обжаренных панцирей Багрового латника. Его солодовому вкусу сопутствуют солоноватые морские нотки. Моряки прозвали напиток жидкой бронёй за чувство прочности, разливающееся по телу.",
+    dc: 13, batch: 2, batchCp: 130, recipeGp: 95, portionSp: 12, weight: 1.5,
+    components: ["Багровый латник ×1", "Ячмень ×1", "Жареный солод ×1", "Хмель ×1", "Дрожжи ×1", "Соль ×1", "Чистая вода ×1", "Пустая бутылка ×2"],
+    changes: [["system.attributes.ac.bonus", "1"]], rarity: "uncommon", beer: true
   }
 ]);
 
@@ -201,7 +241,7 @@ function makeItem(food) {
   const description = "<p>" + (food.beer ? "Пиво «" + food.name + "»" : food.name) + ". " + (food.description ? food.description + " " : "") + "После употребления: <strong>"
     + food.buff + "</strong> — " + food.effect + "</p>"
     + "<p><strong>Длительность:</strong> до долгого отдыха.</p>"
-    + "<p><strong>Крафт:</strong> Кулинария, СЛ " + food.dc
+    + "<p><strong>Крафт:</strong> " + (food.beer ? "Пивоварение" : "Кулинария") + ", СЛ " + food.dc
     + "; результат " + food.batch + " порц.; ингредиенты: "
     + food.components.join(", ") + ".</p>";
   return {
@@ -212,14 +252,15 @@ function makeItem(food) {
       quantity: 1,
       weight: { value: food.weight, units: "lb" },
       price: { value: food.portionSp, denomination: "sp" },
-      rarity: "common",
+      rarity: food.rarity ?? "common",
       uses: { spent: 0, max: "1", recovery: [], prompt: false, autoDestroy: true },
       activities: { [USE_ACTIVITY_ID]: nativeUseActivity() }
     },
     flags: { [NS]: { cookedFood: !food.beer, brewedBeer: food.beer === true, recipeDc: food.dc,
       batchYield: food.batch, batchCostCp: food.batchCp,
       recipePriceGp: food.recipeGp, ingredients: food.components,
-      dessert: food.dessert === true } }
+      dessert: food.dessert === true,
+      professionBonuses: food.professionBonuses ?? [] } }
   };
 }
 
@@ -314,7 +355,7 @@ export const listFood = () => FOODS.map(food => ({
   dessert: food.dessert === true, img: foodIcon(food), ingredients: [...food.components]
 }));
 
-/** Create all five beers as native consumable item templates, without duplicates. */
+/** Create all beer templates once, without duplicates. */
 export async function installBeerItems() {
   if (!game.user?.isGM) throw new Error("Создание пива доступно только ГМ.");
   const world = game.items?.contents ?? [];
@@ -335,6 +376,42 @@ export const listBeerItems = () => BEERS.map(beer => ({
   ingredients: [...beer.components]
 }));
 
+
+/**
+ * Resolve the user's custom professions by their real Actor data keys.
+ * LipatoS-professions isn't bundled with this module and has no guaranteed
+ * public key names: never silently invent a skill ID that may not exist.
+ * Handles professions exposed as dnd5e custom skills, tools or profession data.
+ */
+export function resolveProfessionChanges(actor, professions = []) {
+  const result = new Map();
+  const config = globalThis.CONFIG?.DND5E ?? {};
+  const localize = text => {
+    if (typeof text !== "string") return "";
+    try { return game.i18n?.localize?.(text) ?? text; } catch { return text; }
+  };
+  const normalize = value => String(value ?? "").toLocaleLowerCase("ru").replace(/[\\s_\\-]/g, "");
+  for (const [group, records] of [
+    ["skills", actor?.system?.skills],
+    ["tools", actor?.system?.tools],
+    ["professions", actor?.system?.professions]
+  ]) {
+    if (!records || typeof records !== "object") continue;
+    for (const [id, data] of Object.entries(records)) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) continue;
+      const configEntry = config[group]?.[id];
+      const labels = [id, data?.label, data?.name, data?.title,
+        configEntry?.label ?? configEntry, localize(configEntry?.label ?? configEntry)]
+        .filter(x => typeof x === "string").map(normalize);
+      const matches = professions.some(name =>
+        (PROFESSION_ALIASES[name] ?? []).some(alias => labels.some(label => label.includes(normalize(alias))))
+      );
+      if (matches) result.set(`system.${group}.${id}.roll.bonus`, "2");
+    }
+  }
+  return [...result.entries()];
+}
+
 async function applyFood(actor, item, food) {
   if (!actor?.isOwner) return false;
   // Roll temporary HP using Foundry's dice engine (and show the roll in chat),
@@ -354,7 +431,13 @@ async function applyFood(actor, item, food) {
   await replaceMealEffects(actor);
   const oldTemp = Number(actor.system?.attributes?.hp?.temp ?? 0);
   const newTemp = food.tempHpFormula ? Math.max(oldTemp, grantedTemp) : oldTemp;
+  const professionChanges = resolveProfessionChanges(actor, food.professionBonuses ?? []);
+  if (food.professionBonuses?.length && !professionChanges.length) {
+    console.warn(NS + " | Ремесло не найдено в данных персонажа. Проверьте совместимость LipatoS-professions:", food.professionBonuses);
+    ui.notifications?.warn?.("LipatoS: ремесло для «" + food.name + "» не найдено в данных персонажа; бонус +2 не применён.");
+  }
   const flags = { foodBuff: true, foodIdentifier: food.id, rerollSpent: false,
+    professionBonuses: food.professionBonuses ?? [],
     grantedTemporaryHp: grantedTemp,
     displayedTemporaryHp: newTemp };
   const effect = {
@@ -362,7 +445,7 @@ async function applyFood(actor, item, food) {
     description: mealDescription(food), origin: item.uuid,
     type: "base", disabled: false, transfer: false,
     duration: { startTime: Number(game.time?.worldTime ?? 0) },
-    changes: (food.changes ?? []).map(([key, value]) => ({
+    changes: [...(food.changes ?? []), ...professionChanges].map(([key, value]) => ({
       key, value, mode: ADD, priority: 20
     })),
     flags: { [NS]: flags }
@@ -655,7 +738,7 @@ Hooks.once("ready", () => {
   const module = game.modules.get(NS);
   if (module) module.api = {
     ...(module.api ?? {}), listFoodItems: listFood, listBeerItems,
-    installFoodItems, installBeerItems, rerollFoodStealth: rerollStealth,
+    installFoodItems, installBeerItems, resolveProfessionChanges, rerollFoodStealth: rerollStealth,
     recentFoodEvents: () => foodAudit.slice()
   };
   if (game.user?.isGM && firstGM()?.id === game.user.id) {

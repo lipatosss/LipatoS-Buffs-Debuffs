@@ -129,8 +129,8 @@ test("exact item names only: unrelated consumables never receive food buffs", as
   const { listFoodItems } = globalThis.game?.modules?.get("lipatos-buffs-debuffs")?.api ?? {};
   if (listFoodItems) {
     const values = listFoodItems();
-    assert.equal(values.length, 8);
+    assert.equal(values.length, 11);
     assert.equal(values.filter(x => x.dessert).length, 3);
-    assert.equal(new Set(values.map(x => x.identifier)).size, 8);
+    assert.equal(new Set(values.map(x => x.identifier)).size, 11);
   }
 });

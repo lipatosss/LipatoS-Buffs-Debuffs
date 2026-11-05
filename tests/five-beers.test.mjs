@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 
-test("all five ales install exactly once with correct ingredients, icons, skill keys and normal use", async () => {
+test("all six ales install exactly once with correct ingredients, icons, skill keys and normal use", async () => {
   const callbacks = new Map();
   globalThis.Hooks = {
     on(event, cb) { callbacks.set(event, [...(callbacks.get(event) ?? []), cb]); },
@@ -44,16 +44,17 @@ test("all five ales install exactly once with correct ingredients, icons, skill 
   }};
   const food = await import("../scripts/food.mjs");
   const installed = await food.installBeerItems();
-  assert.equal(installed.length, 5);
+  assert.equal(installed.length, 6);
   assert.equal((await food.installBeerItems()).length, 0);
-  assert.equal(food.listFood().length, 8);
-  assert.equal(food.listBeerItems().length, 5);
+  assert.equal(food.listFood().length, 11);
+  assert.equal(food.listBeerItems().length, 6);
   const beers = [
     ["Весёлый трубадур", "Хмельная удаль", "system.skills.prf.roll.bonus"],
     ["Кабанья ярость", "Кабанья отвага", "system.skills.itm.roll.bonus"],
     ["Лесной шёпот", "Лесное чутьё", "system.skills.nat.roll.bonus"],
     ["Пастуший эль", "Звериное доверие", "system.skills.ani.roll.bonus"],
-    ["Шалфейный эль", "Целебное чутьё", "system.skills.med.roll.bonus"]
+    ["Шалфейный эль", "Целебное чутьё", "system.skills.med.roll.bonus"],
+    ["Панцирный эль", "Багровый панцирь", "system.attributes.ac.bonus"]
   ];
   for (const [name] of beers) {
     const template = created.find(item => item.name === name);
@@ -62,7 +63,7 @@ test("all five ales install exactly once with correct ingredients, icons, skill 
     assert.equal(template.system.uses.autoDestroy, true);
     assert.equal(template.system.activities.useFood000000001.name, "Использовать");
     assert.equal(template.flags["lipatos-buffs-debuffs"].brewedBeer, true);
-    assert.equal(template.flags["lipatos-buffs-debuffs"].batchYield, 3);
+    assert.equal(template.flags["lipatos-buffs-debuffs"].batchYield, name === "Панцирный эль" ? 2 : 3);
     assert.ok(template.flags["lipatos-buffs-debuffs"].ingredients.length >= 5);
   }
   let id = 0;
@@ -106,11 +107,11 @@ test("all five ales install exactly once with correct ingredients, icons, skill 
     await settle();
     assert.equal(actor.effects.length, 1, name);
     assert.equal(actor.effects[0].name, buff);
-    assert.deepEqual(actor.effects[0].changes.map(x => [x.key, x.value]), [[skillKey, "2"]]);
+    assert.deepEqual(actor.effects[0].changes.map(x => [x.key, x.value]), [[skillKey, name === "Панцирный эль" ? "1" : "2"]]);
     assert.doesNotMatch(actor.effects[0].description, /Любая другая еда|медовуха заменяет/);
     assert.equal(actor.items.get(item.id), null);
   }
-  assert.equal(returnedBottles.length, 5, "Every consumed ale returns exactly one bottle");
+  assert.equal(returnedBottles.length, 6, "Every consumed ale returns exactly one bottle");
   assert.equal(fed, 0, "Drinking beer must not count as eating");
   fire("dnd5e.restCompleted", actor, { longRest: true }, { type: "long" });
   await settle();
