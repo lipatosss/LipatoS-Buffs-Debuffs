@@ -65,7 +65,8 @@ test("four new consumables carry exact buff keys and expose real profession bonu
     const template = items.find(it => it.name===name);
     const item = {
       ...template, id:"owned-"+(++sequence), actor:mockActor, parent:mockActor,
-      uuid:mockActor.uuid+".Item."+sequence, system:structuredClone(template.system)
+      uuid:mockActor.uuid+".Item."+sequence, system:structuredClone(template.system),
+      async delete() { mockActor.items.contents = mockActor.items.contents.filter(x => x.id !== this.id); fire("deleteItem",this,{},"gm"); }
     };
     mockActor.items.contents.push(item);
     fire("dnd5e.preUseActivity", { item, actor:mockActor }, {});

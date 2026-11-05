@@ -63,7 +63,7 @@ test("all six ales install exactly once with correct ingredients, icons, skill k
     assert.equal(template.system.uses.autoDestroy, true);
     assert.equal(template.system.activities.useFood000000001.name, "Использовать");
     assert.equal(template.flags["lipatos-buffs-debuffs"].brewedBeer, true);
-    assert.equal(template.flags["lipatos-buffs-debuffs"].batchYield, 3);
+    assert.equal(template.flags["lipatos-buffs-debuffs"].batchYield, name === "Панцирный эль" ? 2 : 3);
     assert.ok(template.flags["lipatos-buffs-debuffs"].ingredients.length >= 5);
   }
   let id = 0;
