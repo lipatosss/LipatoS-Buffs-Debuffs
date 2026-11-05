@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "11 блюд и 6 сортов пива, включая Панцирный эль, Королевского клешняра, рыбное сашими и онигири. Бафы до долгого отдыха, возвращение пустых бутылок и настраиваемые иконки.",
-  "version": "0.6.27",
+  "description": "11 блюд и 6 сортов пива с эффектами до долгого отдыха. Сашими и онигири дают бонусы к ремёслам LipatoS-professions; настраиваемые иконки и возврат пустой бутылки.",
+  "version": "0.6.28",
   "authors": [
     {
       "name": "LipatoS",
@@ -35,5 +35,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.27/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.28/lipatos-buffs-debuffs.zip"
 }

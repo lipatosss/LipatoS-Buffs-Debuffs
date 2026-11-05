@@ -51,13 +51,6 @@ test("four new consumables carry exact buff keys and expose real profession bonu
     async update() {}
   };
   mockActor.effects.get = id => mockActor.effects.find(e => e.id===id);
-  const res = food.resolveProfessionChanges(mockActor, ["fishing", "brewing", "winemaking"]);
-  assert.deepEqual(res, [
-    ["system.skills.fishing.roll.bonus", "2"],
-    ["system.skills.pivovar.roll.bonus", "2"],
-    ["system.tools.winery.roll.bonus", "2"]
-  ]);
-  assert.equal(food.resolveProfessionChanges({system:{skills:{}}},["fishing"]).length,0);
   let sequence = 0;
   const fire = (event,...args) => { for (const cb of hookCallbacks.get(event) ?? []) cb(...args); };
   const settle = async () => { for(let i=0;i<24;i++) await new Promise(r=>setImmediate(r)); };
@@ -85,8 +78,15 @@ test("four new consumables carry exact buff keys and expose real profession bonu
     if(name==="Королевский клешняр в чесночном масле") {
       assert.deepEqual(keys,["system.rolls.attack.mwak.bonus","system.rolls.attack.rwak.bonus"]);
     }
-    if(name==="Рыбное сашими") assert.deepEqual(keys,["system.skills.fishing.roll.bonus"]);
-    if(name==="Онигири") assert.deepEqual(keys,["system.skills.pivovar.roll.bonus","system.tools.winery.roll.bonus"]);
+    if(name==="Рыбное сашими") {
+      assert.deepEqual(keys, [], "Profession bonus is read from effect flags at roll time");
+      assert.deepEqual(mockActor.effects[0].flags["lipatos-buffs-debuffs"].professionBonuses, ["fishing"]);
+    }
+    if(name==="Онигири") {
+      assert.deepEqual(keys, [], "Never mutate non-existent dnd5e skill keys");
+      assert.deepEqual(mockActor.effects[0].flags["lipatos-buffs-debuffs"].professionBonuses, ["brewing"]);
+      assert.match(template.system.description.value, /Пивоварение и виноделие/);
+    }
   }
   assert.equal(returned.length,1,"Only ale returns an empty bottle");
   assert.deepEqual(warnings,[]);
