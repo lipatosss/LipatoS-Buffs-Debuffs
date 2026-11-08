@@ -97,9 +97,11 @@ test("inventory charge changes never grant buffs; explicit context use does", as
     actor.items.contents.push(food);
 
     // Inventory updates, including transfer changes, never grant meal effects.
+    const effectsBefore = actor.effects.map(e => e.name);
     fire("updateItem", food, { system: { uses: { spent: 1 } } }, {}, "gm");
     await settle();
-    assert.equal(actor.effects.length, 1, name + " inventory update must not grant a buff");
+    assert.deepEqual(actor.effects.map(e => e.name), effectsBefore,
+      name + " inventory update must not change effects");
     assert.ok(actor.items.get(food.id), "Unrelated updates must not consume a portion");
     assert.equal(await meals.useMealFromContext(food), true);
     await settle();
