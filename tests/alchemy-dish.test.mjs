@@ -60,8 +60,7 @@ test("alchemy dish matches real profession ID and is preserved by the drink slot
       }
     };
     actor.items.contents.push(source);
-    source.system.uses.spent=1;
-    fire("updateItem",source,{system:{uses:{spent:1}}},{},"gm");
+    assert.equal(await food.useMealFromContext(source), true);
     await settle();
   }
   await consume(dish);
