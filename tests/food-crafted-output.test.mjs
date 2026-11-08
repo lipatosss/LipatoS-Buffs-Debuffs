@@ -83,7 +83,7 @@ test("Mastercrafted output is repaired, consumed and automatically buffs actor",
     return item;
   }
 
-  await import("../scripts/food.mjs");
+  const meals = await import("../scripts/food.mjs");
   await once.get("ready")();
   const fish = crafted("Уха туманного берега");
   fire("createItem", fish, {}, "gm");
@@ -96,11 +96,13 @@ test("Mastercrafted output is repaired, consumed and automatically buffs actor",
   assert.ok(!fish.system.activities.eatMeal000000001);
   assert.equal(fish.img, "icons/svg/item-bag.svg", "Crafted food uses the standard placeholder");
 
-  // Some sheet modules report postUse without sending a native charge update.
+  // Native activity hooks alone cannot eat food.
   const fishUse = { item: fish, actor }, usage = {};
   fire("dnd5e.preUseActivity", fishUse, usage);
   fire("dnd5e.postUseActivity", fishUse, usage, {});
   await settle();
+  assert.equal(actor.effects.length, 0);
+  assert.equal(await meals.useMealFromContext(fish), true);
   assert.equal(actor.effects.length, 1);
   assert.equal(actor.effects[0].name, "Острое чутьё");
   assert.equal(actor.items.has(fish.id), false, "Charge was spent, portion removed");
@@ -115,7 +117,9 @@ test("Mastercrafted output is repaired, consumed and automatically buffs actor",
   fire("dnd5e.postActivityConsumption", nutsUse, usage2, {}, {});
   fire("dnd5e.postUseActivity", nutsUse, usage2, {});
   await settle();
-  assert.equal(actor.effects.length, 1, "New food replaces the old");
+  assert.equal(actor.effects.length, 1, "Native activity hooks cannot replace a meal");
+  assert.equal(await meals.useMealFromContext(nuts), true);
+  assert.equal(actor.effects.length, 1, "New context use replaces the old");
   assert.equal(actor.effects[0].name, "Быстрая реакция");
   assert.equal(actor.items.has(nuts.id), false);
 
