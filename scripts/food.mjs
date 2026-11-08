@@ -1,10 +1,10 @@
 /**
  * Aindor cooked meals for Foundry V14 + dnd5e 6.0.6 (2014).
  * All mechanical benefits are actor effects, never transferable item effects.
- * One charge is consumed by the native dnd5e Activity, not by this file.
+ * Meal buffs apply ONLY through the explicit right-click "Использовать" command.
+ * Transfers, deletion, inventory changes and generic activities cannot eat food.
  */
 import { replaceMealEffects } from "./meal-shared.mjs";
-import { FoodUseTracker } from "./food-use-tracker.mjs";
 
 const NS = "lipatos-buffs-debuffs";
 const STEALTH_TART = "chernichnyy-tart-teney";
@@ -12,15 +12,9 @@ const DEFAULT_MEAL_ICON = "icons/svg/item-bag.svg";
 const foodIcon = () => DEFAULT_MEAL_ICON;
 const ADD = 2; // CONST.ACTIVE_EFFECT_MODES.ADD
 const tasks = new Map();
-const useTracker = new FoodUseTracker();
-const primed = new Map();
 
 const restResults = new WeakSet();
 const rerolls = new Set();
-const ignoredUpdates = new Set();
-// preDeleteItem retains the originating actor while the embedded document is
-// being removed. Some inventory Use controls auto-destroy the Item directly.
-const terminalItemSnapshots = new WeakMap();
 const foodAudit = [];
 function auditFood(event, actor, item, detail = "") {
   foodAudit.push({ event, actor: actor?.uuid ?? null, food: item?.name ?? null,
@@ -448,207 +442,48 @@ async function applyFood(actor, item, food) {
   return true;
 }
 
-async function finalizeCharge(actor, item) {
-  const owned = actor.items?.get?.(item.id);
-  if (!owned || !foodDefinition(owned)) return;
-  const uses = owned.system?.uses ?? {};
-  const spent = Number(uses.spent ?? 0), max = Number(uses.max ?? 0);
-  if (!uses.autoDestroy || max <= 0 || spent < max) return;
-  const key = foodKey(actor, owned);
-  ignoredUpdates.add(key);
-  try {
-    const qty = Number(owned.system?.quantity ?? 1);
-    if (qty > 1) await owned.update({ "system.quantity": qty - 1, "system.uses.spent": 0 });
-    else await owned.delete();
-  } finally { ignoredUpdates.delete(key); }
-}
-function runFood(actor, item, trigger, { manualConsumption = false } = {}) {
+/**
+ * This is the only entry point that may grant crafted meal buffs.
+ * It is called by LipatoS Item Move Stack's right-click "Использовать".
+ * Quantity changes and deletion alone are never evidence of consumption.
+ */
+export async function useMealFromContext(item) {
+  const actor = item?.parent?.documentName === "Actor" ? item.parent : item?.actor;
   const food = foodDefinition(item);
-  if (!food || !actor?.isOwner || actor.documentName !== "Actor") return;
-  auditFood("use:" + trigger, actor, item);
-  void workFor(actor, async () => {
-    // A successful native "Use" action must spend exactly one charge.
-    // If third-party modules bypass the dnd5e consumption pipeline,
-    // our postUse fallback spends it once before applying the buff.
-    if (manualConsumption) {
-      const owned = actor.items?.get?.(item.id);
-      const key = foodKey(actor, item);
-      if (owned && foodDefinition(owned)) {
-        ignoredUpdates.add(key);
-        try { await owned.update({ "system.uses.spent": 1 }); }
-        finally { ignoredUpdates.delete(key); }
-      }
-    }
-    const applied = await applyFood(actor, item, food);
-    if (!applied) return;
-    await finalizeCharge(actor, item);
-    auditFood("applied:" + trigger, actor, item, food.buff);
-    console.info(NS + " | Автоматически применена еда: " + food.name + " (" + trigger + ")");
-  }).catch(error => {
-    auditFood("error:" + trigger, actor, item, error?.message ?? error);
-    console.error(NS + " | Ошибка применения еды " + food.name, error);
-    ui.notifications?.error?.("Не удалось применить бафф «" + food.buff + "» (F12).");
-  });
-}
-// D&D5e 6.0.6 confirmed consumption is the primary trigger. The old
-// implementation checked for remaining charges AFTER autoDestroy and could
-// silently skip a successfully eaten food. Track individual activations so
-// updateItem, deleteItem, postUse and postActivityConsumption never stack buffs.
-function prime(activity, usageConfig, isNew) {
-  if (!foodDefinition(activity?.item)) return;
-  const actor = ownActor(activity), key = foodKey(actor, activity.item);
-  if (!key || !actor?.isOwner) return;
-  if (isNew) useTracker.begin(key, usageConfig);
-  else useTracker.preConsumption(key, usageConfig);
-  if (isNew || !primed.has(key)) {
-    primed.set(key, {
-      time: Date.now(),
-      quantity: Number(activity.item.system?.quantity ?? 1)
-    });
-  }
-}
-// Legacy dnd5e inventory "Использовать" may fire preUseItem rather than
-// preUseActivity. Prime exactly like the heather mead's consumption flow.
-Hooks.on("dnd5e.preUseItem", (item, usageConfig) => {
-  if (!foodDefinition(item)) return;
-  const actor = item.actor ?? item.parent;
-  const key = foodKey(actor, item);
-  if (!actor?.isOwner || !key) return;
-  useTracker.preConsumption(key, usageConfig);
-  primed.set(key, { time: Date.now(),
-    quantity: Number(item.system?.quantity ?? 1) });
-});
-Hooks.on("dnd5e.preUseActivity", (activity, usageConfig) => prime(activity, usageConfig, true));
-Hooks.on("dnd5e.preActivityConsumption", (activity, usageConfig) => prime(activity, usageConfig, false));
+  if (!food || actor?.documentName !== "Actor" || !actor.isOwner || !item?.id) return false;
 
-Hooks.on("dnd5e.postActivityConsumption", (activity, usageConfig) => {
-  const item = activity?.item, food = foodDefinition(item);
-  if (!food) return;
-  const actor = ownActor(activity), key = foodKey(actor, item);
-  if (!actor?.isOwner || !key) return;
-  // This hook is called by dnd5e after it has performed the consumption.
-  // Do not depend on item still being present after autoDestroy.
-  if (useTracker.consumed(key, usageConfig)) {
-    // Native versions & third-party sheets may report successful use without
-    // spending the charge. Make consumption real, but NEVER consume twice.
+  // Serialize both use and subsequent item writes for this actor. A double
+  // click cannot eat the same final portion twice.
+  return workFor(actor, async () => {
     const owned = actor.items?.get?.(item.id);
-    const before = primed.get(key);
-    const chargeSpent = Number(owned?.system?.uses?.spent ?? 0) > 0;
-    const portionSpent = Boolean(before && owned &&
-      Number(owned.system?.quantity ?? 1) < before.quantity);
-    console.info(NS + " | Завершено употребление (postActivityConsumption):", food.name);
-    runFood(actor, item, "postActivityConsumption",
-      { manualConsumption: Boolean(owned && !chargeSpent && !portionSpent) });
-  }
-});
-
-Hooks.on("updateItem", (item, changed, options, userId) => {
-  if (!foodDefinition(item) || item.parent?.documentName !== "Actor") return;
-  if (userId && userId !== game.user?.id) return;
-  const actor = item.parent, key = foodKey(actor, item);
-  if (ignoredUpdates.has(key)) return;
-  const spent = changed?.["system.uses.spent"] ?? changed?.system?.uses?.spent;
-  const quantity = changed?.["system.quantity"] ?? changed?.system?.quantity;
-  const usedCharge = spent !== undefined && Number(spent) > 0
-    && Number(item.system?.uses?.spent ?? 0) > 0;
-  const entry = primed.get(key);
-  const usedPortion = entry && Date.now() - entry.time < 30000
-    && quantity !== undefined && Number(quantity) < entry.quantity;
-  // Exactly like heather-mead.mjs: a confirmed charge spend needs NO
-  // preliminary activity hook. A direct "Использовать" click in the 5e
-  // inventory often updates the document without preUseActivity.
-  if (usedCharge && useTracker.itemUpdated(key, { acceptUnprimed: true })) {
-    runFood(actor, item, "updateItem");
-  } else if (usedPortion && useTracker.itemUpdated(key, { acceptUnprimed: true })) {
-    runFood(actor, item, "updateItem-quantity");
-  }
-});
-Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, result) => {
-  // postUseActivity fires only after an activity has successfully activated.
-  // Do NOT demand remaining item uses here: autoDestroy may have removed
-  // the item, or a custom sheet may have bypassed its native consumption.
-  if (!foodDefinition(activity?.item) || !result || typeof result !== "object"
-      || result.cancelled === true || result.canceled === true
-      || result.aborted === true || result.success === false) return;
-  const actor = ownActor(activity), key = foodKey(actor, activity.item);
-  if (!actor?.isOwner || !key) return;
-  const before = primed.get(key);
-  const current = actor.items?.get?.(activity.item.id);
-  const usedCharge = Number(current?.system?.uses?.spent ?? 0) > 0;
-  const usedPortion = Boolean(before && current &&
-    Number(current.system?.quantity ?? 1) < before.quantity);
-  const fullyConsumed = Boolean(before && actor.items && !current);
-  const nativeConsumed = Boolean(usedCharge || usedPortion || fullyConsumed);
-  if (useTracker.postUse(key, usageConfig, result, true)) {
-    runFood(actor, activity.item, "postUseActivity",
-      { manualConsumption: !nativeConsumed && Boolean(current) });
-  }
-  primed.delete(key);
-});
-/**
- * Capture the owner BEFORE Foundry removes the actor-embedded item. Foundry
- * versions and modules may clear .parent/.actor on the deleted document.
- */
-Hooks.on("preDeleteItem", (item, options, userId) => {
-  const food = foodDefinition(item);
-  if (!food) return;
-  const actor = item.parent?.documentName === "Actor" ? item.parent : item.actor;
-  if (actor?.documentName !== "Actor" || !actor.isOwner) return;
-  terminalItemSnapshots.set(item, {
-    actor, food, at: Date.now(), item: {
-      id: item.id, name: item.name, img: item.img,
-      uuid: item.uuid, type: item.type,
-      system: { identifier: food.id,
-        quantity: Number(item.system?.quantity ?? 1),
-        uses: { spent: Number(item.system?.uses?.spent ?? 0),
-          max: Number(item.system?.uses?.max ?? 0),
-          autoDestroy: item.system?.uses?.autoDestroy === true } }
+    const currentFood = foodDefinition(owned);
+    const qty = Number(owned?.system?.quantity ?? 0);
+    if (!currentFood || !Number.isSafeInteger(qty) || qty < 1) {
+      ui.notifications?.warn?.("Блюдо уже отсутствует в инвентаре.");
+      return false;
     }
+
+    // Spend exactly one portion of either a single item or a crafted stack.
+    // Other modules see a normal deletion/update, never an item use.
+    if (qty > 1) {
+      await owned.update({ "system.quantity": qty - 1, "system.uses.spent": 0 },
+        { lipatosSkipMealBuff: true });
+    } else {
+      await owned.delete({ lipatosSkipMealBuff: true });
+    }
+
+    const applied = await applyFood(actor, owned, currentFood);
+    if (applied) {
+      auditFood("used:context-menu", actor, owned, currentFood.buff);
+      console.info(NS + " | Употреблено через ПКМ: " + currentFood.name);
+    }
+    return Boolean(applied);
+  }).catch(error => {
+    console.error(NS + " | Ошибка употребления еды через ПКМ", error);
+    ui.notifications?.error?.("Не удалось употребить блюдо (F12).");
+    return false;
   });
-});
-
-/**
- * Most important difference from older releases:
- * native "Использовать" may DELETE the last charge directly.
- * The old preUseActivity requirement suppressed the buff on exactly this path.
- *
- * A last-charge food deletion on the initiating user's client is treated as
- * consumption even when Foundry sends no other activity/charge hook. A manual
- * deletion of such a food is indistinguishable from an auto-consume if no
- * usage metadata is supplied; users can opt out through lipatosSkipMealBuff.
- */
-Hooks.on("deleteItem", (item, options = {}, userId) => {
-  if (userId && userId !== game.user?.id) return;
-  if (options?.lipatosSkipMealBuff === true) return;
-  const snapshot = terminalItemSnapshots.get(item);
-  terminalItemSnapshots.delete(item);
-  const food = foodDefinition(item) ?? snapshot?.food;
-  if (!food) return;
-  auditFood("delete:observed", snapshot?.actor ?? item.parent ?? item.actor,
-    snapshot?.item ?? item, "userId=" + String(userId ?? "none"));
-  const actor = snapshot?.actor
-    ?? (item.parent?.documentName === "Actor" ? item.parent : item.actor);
-  if (actor?.documentName !== "Actor" || !actor.isOwner) return;
-  const sourceItem = snapshot?.item ?? item;
-  const key = foodKey(actor, sourceItem);
-  if (!key || ignoredUpdates.has(key)) return;
-
-  const entry = primed.get(key);
-  const primedRecently = Boolean(entry && Date.now() - entry.time < 30000);
-  // Snapshot values survive systems that nullify deleted document fields.
-  const uses = snapshot?.item?.system?.uses ?? item.system?.uses ?? {};
-  const spent = Number(uses.spent ?? 0);
-  const max = Number(uses.max ?? 0);
-  const lastPortion = Number(snapshot?.item?.system?.quantity
-    ?? item.system?.quantity ?? 1) <= 1;
-  const nativeAutoDestroy = uses.autoDestroy === true && max >= 1 && lastPortion;
-  const chargedOut = max >= 1 && spent >= max;
-  if (!nativeAutoDestroy && !chargedOut && !primedRecently) return;
-  if (useTracker.itemDeleted(key, { acceptUnprimed: true })) {
-    primed.delete(key);
-    runFood(actor, sourceItem, "deleteItem-autoDestroy");
-  }
-});
+}
 
 // Poison resistance comes from an ActiveEffect. Advantage must only apply to
 // poison-related saves; never blanket-advantage every Constitution saving throw.
@@ -717,6 +552,8 @@ Hooks.once("ready", () => {
   if (module) module.api = {
     ...(module.api ?? {}), listFoodItems: listFood, listBeerItems,
     installFoodItems, installBeerItems, rerollFoodStealth: rerollStealth,
+    isMealItem: item => Boolean(foodDefinition(item)),
+    useMealFromContext,
     recentFoodEvents: () => foodAudit.slice()
   };
   if (game.user?.isGM && firstGM()?.id === game.user.id) {
