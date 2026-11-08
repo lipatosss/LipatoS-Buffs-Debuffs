@@ -62,9 +62,7 @@ test("new consumables carry exact buff keys and expose real profession bonuses",
       async delete() { mockActor.items.contents = mockActor.items.contents.filter(x => x.id !== this.id); fire("deleteItem",this,{},"gm"); }
     };
     mockActor.items.contents.push(item);
-    fire("dnd5e.preUseActivity", { item, actor:mockActor }, {});
-    item.system.uses.spent = 1;
-    fire("updateItem", item, { system: { uses: { spent: 1 } } }, {}, "gm");
+    assert.equal(await food.useMealFromContext(item), true);
     await settle();
     // One food and one drink may coexist; subsequent meals replace only food.
     assert.equal(mockActor.effects.length, name === "Панцирный эль" ? 1 : 2, name);
