@@ -50,7 +50,7 @@ test("Foundry food hooks apply real actor effects exactly once, replace buffs an
       return created;
     }
   };
-  await import("../scripts/food.mjs");
+  const meals = await import("../scripts/food.mjs");
   await once.get("ready")();
   await mod.api.installFoodItems();
   // Ready now installs twelve meals plus six brewed ales.
@@ -90,7 +90,12 @@ test("Foundry food hooks apply real actor effects exactly once, replace buffs an
     assert.ok(source, id);
     return { ...source, id: "owned-" + (++sequence), actor, parent: actor,
       uuid: actor.uuid + ".Item." + sequence,
-      system: structuredClone(source.system)
+      system: structuredClone(source.system),
+      async delete() { actor.items.delete(this.id); },
+      async update(patch) {
+        if (patch["system.quantity"] != null) this.system.quantity = patch["system.quantity"];
+        if (patch["system.uses.spent"] != null) this.system.uses.spent = patch["system.uses.spent"];
+      }
     };
   };
 
@@ -104,6 +109,9 @@ test("Foundry food hooks apply real actor effects exactly once, replace buffs an
   fire("dnd5e.postActivityConsumption", activity, config, {}, {});
   fire("dnd5e.postUseActivity", activity, config, {});
   await settle();
+  assert.equal(actor.effects.length, 0, "Generic activity hooks and deletion cannot apply food");
+  actor.items.set(roast.id, roast);
+  assert.equal(await meals.useMealFromContext(roast), true);
   assert.equal(actor.effects.length, 1);
   assert.equal(actor.effects[0].name, "Крепкая сытость");
   assert.equal(actor.system.attributes.hp.temp, 5);
@@ -121,7 +129,10 @@ test("Foundry food hooks apply real actor effects exactly once, replace buffs an
   fire("dnd5e.postActivityConsumption", next, usage, {}, {});
   fire("dnd5e.postUseActivity", next, usage, {});
   await settle();
-  assert.equal(actor.effects.length, 1, "New food must replace the former effect");
+  assert.equal(actor.effects.length, 1, "Native activity without context does nothing");
+  actor.items.set(nuts.id, nuts);
+  assert.equal(await meals.useMealFromContext(nuts), true);
+  assert.equal(actor.effects.length, 1, "New explicit food use replaces the former effect");
   assert.equal(actor.effects[0].name, "Быстрая реакция");
   assert.deepEqual(actor.effects[0].changes.map(c => [c.key, c.value]),
     [["system.attributes.init.roll.bonus", "2"]]);
