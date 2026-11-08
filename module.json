@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "12 блюд и 6 сортов пива с независимыми баффами до долгого отдыха. Новое блюдо «Жемчужные гнёзда длинноусов» даёт +2 к Алхимии.",
-  "version": "0.6.30",
+  "description": "12 блюд и 6 сортов пива: бафы действуют только при ПКМ → Использовать. Передача, крафт и удаление не считаются употреблением.",
+  "version": "0.6.31",
   "authors": [
     {
       "name": "LipatoS",
@@ -35,5 +35,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.30/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.31/lipatos-buffs-debuffs.zip"
 }
