@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-test("all eight foods apply one buff when Use destroys the last portion with NO other hooks", async () => {
+test("manual or transferred food deletion never awards a buff", async () => {
   const listeners = new Map();
   globalThis.Hooks = {
     on(name, fn) { listeners.set(name, [...(listeners.get(name) ?? []), fn]); },
@@ -84,11 +84,10 @@ test("all eight foods apply one buff when Use destroys the last portion with NO 
     fire("deleteItem", item, {}, "gm");
     fire("deleteItem", item, {}, "gm"); // Should not duplicate.
     await settle();
-    assert.equal(actor.effects.length, 1, name + ": one buff only");
-    assert.equal(actor.effects[0].name, buff, name + ": correct buff");
+    assert.equal(actor.effects.length, 0, name + ": deletion cannot grant any buff");
   }
   assert.equal(actor.system.attributes.hp.temp, 0,
-    "Later food replaced the roast's temporary HP pool");
+    "Deleting food must never grant temporary HP");
   fire("dnd5e.restCompleted", actor, { longRest: true }, { type: "long" });
   await settle();
   assert.equal(actor.effects.length, 0);
