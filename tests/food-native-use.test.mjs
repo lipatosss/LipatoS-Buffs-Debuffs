@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
  * item charges directly; NO dnd5e.preUseActivity is emitted.
  * This is exactly the scenario already supported by the heather-mead module.
  */
-test("all eight meals apply buffs from the native Item charge update without activity hooks", async () => {
+test("inventory charge changes never grant buffs; explicit context use does", async () => {
   const events = new Map();
   globalThis.Hooks = {
     on(name, cb) { events.set(name, [...(events.get(name) ?? []), cb]); },
@@ -56,7 +56,7 @@ test("all eight meals apply buffs from the native Item charge update without act
   actor.effects.get = id => actor.effects.find(x => x.id === id);
   globalThis.game.actors.contents.push(actor);
 
-  await import("../scripts/food.mjs");
+  const meals = await import("../scripts/food.mjs");
   const settle = async () => {
     for (let i = 0; i < 30; i++) await new Promise(resolve => setImmediate(resolve));
   };
@@ -84,7 +84,7 @@ test("all eight meals apply buffs from the native Item charge update without act
       uuid: actor.uuid + ".Item.cooked" + next,
       type: "consumable", img: "icons/svg/item-bag.svg",
       system: { identifier: "external-mastercrafted", quantity: 1,
-        uses: { spent: 1, max: 1, autoDestroy: true } },
+        uses: { spent: 0, max: 1, autoDestroy: true } },
       async update(change) {
         if (change["system.quantity"] != null) this.system.quantity = change["system.quantity"];
         if (change["system.uses.spent"] != null) this.system.uses.spent = change["system.uses.spent"];
@@ -96,10 +96,14 @@ test("all eight meals apply buffs from the native Item charge update without act
     };
     actor.items.contents.push(food);
 
-    // No pre-use, no crafted activity, just the direct item-use spend.
+    // Inventory updates, including transfer changes, never grant meal effects.
     fire("updateItem", food, { system: { uses: { spent: 1 } } }, {}, "gm");
     await settle();
-    assert.equal(actor.effects.length, 2, name + " replaces only previous food");
+    assert.equal(actor.effects.length, 1, name + " inventory update must not grant a buff");
+    assert.ok(actor.items.get(food.id), "Unrelated updates must not consume a portion");
+    assert.equal(await meals.useMealFromContext(food), true);
+    await settle();
+    assert.equal(actor.effects.length, 2, name + " explicit use replaces previous food");
     assert.ok(actor.effects.some(e => e.id === "oldMead"), "Mead must survive eating");
     assert.equal(actor.effects.find(e => e.flags?.["lipatos-buffs-debuffs"]?.foodBuff)?.name, expectedBuff);
     assert.equal(actor.items.get(food.id), null, name + " charge 1 must destroy the portion");
