@@ -121,7 +121,7 @@ test("using food and drink retains one buff in each channel, medovukha also repl
       return docs;
     }
   });
-  await import("../scripts/food.mjs");
+  const meals = await import("../scripts/food.mjs");
   await import("../scripts/heather-mead.mjs");
   for (const cb of hooks.get("ready") ?? []) cb();
   const settle = async () => { for(let i=0;i<35;i++) await new Promise(r=>setImmediate(r)); };
@@ -130,12 +130,14 @@ test("using food and drink retains one buff in each channel, medovukha also repl
       id:"owned-"+(++seq), name, type:"consumable", actor:a, parent:a,
       uuid:a.uuid+".Item."+seq, img:"icons/svg/item-bag.svg",
       system: { identifier:"custom-crafted-id", quantity:1,
-        uses:{ max:1, spent:1, autoDestroy:true } },
+        uses:{ max:1, spent:0, autoDestroy:true } },
       async delete() { a.items.contents = a.items.contents.filter(x=>x!==this); fire("deleteItem",this,{},"owner"); }
     };
     a.items.contents.push(item);
     fire("updateItem",item,{system:{uses:{spent:1}}},{},"owner");
     await settle();
+    assert.notEqual(a.items.get(item.id), null, "Inventory updates must not eat food");
+    assert.equal(await meals.useMealFromContext(item), true);
     assert.equal(a.items.get(item.id),null);
   }
   const names = () => a.effects.map(e=>e.name).sort();
