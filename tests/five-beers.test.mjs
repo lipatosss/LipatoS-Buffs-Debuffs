@@ -101,9 +101,8 @@ test("all six ales install exactly once with correct ingredients, icons, skill k
     };
     if (name === "Весёлый трубадур")
       item.system.identifier = "mastercrafted-other-id";
-    item.system.uses.spent = 1;
     actor.items.contents.push(item);
-    fire("updateItem", item, { system: { uses: { spent: 1 } } }, {}, "gm");
+    assert.equal(await food.useMealFromContext(item), true);
     await settle();
     assert.equal(actor.effects.length, 1, name);
     assert.equal(actor.effects[0].name, buff);
