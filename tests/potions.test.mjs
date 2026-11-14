@@ -5,6 +5,7 @@ import vm from "node:vm";
 
 function setup() {
   const hooks = new Map();
+  const wrappers = [];
   const effects = [];
   effects.get = id => effects.find(effect => effect.id === id);
   const inventory = new Map();
@@ -61,10 +62,11 @@ function setup() {
       async evaluate() { return this; } async toMessage() {} },
     ChatMessage: { getSpeaker: () => ({}), create: async m => messages.push(m) },
     ui: { notifications: {warn() {}, error() {}} },
+    libWrapper: { register: (namespace, path, wrap) => { wrappers.push({namespace, path, wrap}); } },
     console, Date
   });
   vm.runInContext(source, ctx);
-  return { ctx, hooks, actor, effects, inventory, rolls, messages, flaskTemplate };
+  return { ctx, hooks, actor, effects, inventory, rolls, messages, flaskTemplate, wrappers };
 }
 test("healing rolls only once and caps at maximum HP", async () => {
   const t = setup();
@@ -94,7 +96,7 @@ test("speed applies a timed effect and buffalo adds a distinct flagged effect", 
   const buffalo = t.effects.find(e => e.flags["lipatos-buffs-debuffs"].potionId === "zele-buyvola");
   assert.equal(speed.duration.seconds, 600);
   assert.equal(speed.flags["lipatos-buffs-debuffs"].expiresAt, 700);
-  assert.equal(speed.changes.length, 5);
+  assert.equal(speed.changes.length, 0);
   assert.equal(buffalo.flags["lipatos-buffs-debuffs"].potionId,"zele-buyvola");
   assert.equal(buffalo.changes.length,0);
 });
@@ -126,4 +128,67 @@ test("each drunk potion returns only the specified small flask, stacking quantit
   assert.equal(flasks[0].name, "Небольшой флакон для зелья");
   assert.equal(flasks[0].img, "icons/custom-small-flask.webp");
   assert.equal(t.actor.items.contents.some(i => i.system?.identifier === "pustaya-butylka"), false);
+});
+
+test("speed potion doubles FINAL movement after core modifiers: 25->50, not 60", async () => {
+  const t = setup();
+  t.hooks.get("setup")();
+  assert.equal(t.wrappers.length, 1);
+  const apply = vm.runInContext("applyPotion", t.ctx);
+  const id = "zele-skorosti";
+  await apply(t.actor, {id,uuid:"Actor.test.Item."+id,type:"consumable",
+    name:id,system:{identifier:id,uses:{autoDestroy:false}}}, id);
+  const prepare = t.wrappers[0].wrap;
+  assert.equal(t.wrappers[0].path, "CONFIG.Actor.documentClass.prototype.prepareData");
+  const normalPreparation = () => {
+    // dnd5e final walking speed after subtracting -5 from the base 30.
+    t.actor.system.attributes.movement = {walk:25, fly:0, swim:15, climb:null, burrow:0};
+  };
+  prepare.call(t.actor, normalPreparation);
+  assert.equal(t.actor.system.attributes.movement.walk, 50);
+  assert.equal(t.actor.system.attributes.movement.swim, 30);
+  assert.equal(t.actor.system.attributes.movement.fly, 0);
+  assert.equal(t.actor.system.attributes.movement.climb, null);
+  // Running prepareData again (or a refresh) must not compound the multiplier.
+  prepare.call(t.actor, normalPreparation);
+  assert.equal(t.actor.system.attributes.movement.walk, 50);
+  // Other equipment or magic may alter the movement while potion is active.
+  prepare.call(t.actor, () => {
+    t.actor.system.attributes.movement = {walk:35, swim:15, fly:0};
+  });
+  assert.equal(t.actor.system.attributes.movement.walk, 70);
+  // When the potion expires, the original prepared result is restored.
+  t.effects[0].disabled = true;
+  prepare.call(t.actor, normalPreparation);
+  assert.equal(t.actor.system.attributes.movement.walk, 25);
+});
+
+test("old multiplication ActiveEffects are migrated, retaining other changes", async () => {
+  const t = setup();
+  t.hooks.get("setup")();
+  const speed = {
+    id: "legacy", disabled: false,
+    flags: {"lipatos-buffs-debuffs": {aindorPotion:true,potionId:"zele-skorosti"}},
+    changes: [
+      {key:"system.attributes.movement.walk",mode:1,value:"2",priority:20},
+      {key:"system.attributes.movement.fly",mode:1,value:"2",priority:20},
+      {key:"system.attributes.ac.bonus",mode:2,value:"1",priority:20}
+    ],
+    async update(patch) { this.changes = patch.changes; }
+  };
+  t.effects.push(speed);
+  const migrate = vm.runInContext("migrateSpeedEffects", t.ctx);
+  const wrapper = t.wrappers[0].wrap;
+  wrapper.call(t.actor, () => {
+    t.actor.system.attributes.movement = {walk:60};
+  });
+  // Guard: no second doubling while legacy change still active.
+  assert.equal(t.actor.system.attributes.movement.walk, 60);
+  assert.equal(await migrate(t.actor), 1);
+  assert.equal(speed.changes.length, 1);
+  assert.equal(speed.changes[0].key, "system.attributes.ac.bonus");
+  wrapper.call(t.actor, () => {
+    t.actor.system.attributes.movement = {walk:25};
+  });
+  assert.equal(t.actor.system.attributes.movement.walk, 50);
 });
