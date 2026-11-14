@@ -6,12 +6,16 @@
  */
 const NS = "lipatos-buffs-debuffs";
 const UNIQUE = "lipatos-aindor-unique-items";
+const POTION_FLASK_ID = "nebolshoi-flakon-dlya-zelia";
+const POTION_FLASK_UUID = "Item.gcZIt59eKbVeeASi";
 const IDS = Object.freeze({
   "zele-krovavyh-shipov": ["Кровавые шипы", "До долгого отдыха при попадании по вам рукопашной атакой нападавший получает 1к4 колющего урона."],
   "zele-feniksa": ["Возрождение феникса", "Первое падение до 0 хитов оставляет 1 хит. Одно срабатывание до долгого отдыха."],
   "zele-prizrachnogo-shaga": ["Призрачный шаг", "Можно двигаться через пространство враждебных существ и не провоцировать атак при выходе из их досягаемости. Нельзя заканчивать ход в пространстве другого существа."],
   "zele-kostyanogo-pancirya": ["Костяной панцирь", "Первое критическое попадание превращается в обычное попадание. Одно срабатывание до долгого отдыха."],
   "zele-posledney-mesti": ["Последняя месть", "При первом падении до 0 хитов можно реакцией совершить одну атаку оружием перед потерей сознания. Требуется решение игрока."],
+  "zele-malogo-lecheniya": ["Исцеление", "Немедленно восстанавливает 2к4 + 2 хита."],
+  // Backwards compatibility with potions already owned by characters.
   "zele-lecheniya": ["Исцеление", "Немедленно восстанавливает 2к4 + 2 хита."],
   "zele-skorosti": ["Стремительность", "Скорость передвижения удвоена на 10 минут; дополнительных действий и атак нет."],
   "zele-buyvola": ["Буйволиная сила", "Максимальный переносимый вес увеличен на 200 фунтов до долгого отдыха; Сила не меняется."]
@@ -65,15 +69,84 @@ function claim(actor, item, source, confirmed = false) {
     ui.notifications?.error?.("Ошибка применения зелья «" + item.name + "». Подробности в F12.");
   });
 }
+// Potions use a separate SMALL glass flask, not the mead/beer bottle.
+const isPotionFlask = item =>
+  String(item?.system?.identifier ?? "").trim().toLowerCase() === POTION_FLASK_ID;
+async function findPotionFlaskTemplate(actor) {
+  // Prefer the exact world Item provided by the GM, including its own icon.
+  try {
+    const exact = typeof fromUuid === "function"
+      ? await fromUuid(POTION_FLASK_UUID) : game.items?.get?.("gcZIt59eKbVeeASi");
+    if (exact?.documentName === "Item" && isPotionFlask(exact)) return exact;
+  } catch (error) { console.warn(NS + " | UUID флакона недоступен", error); }
+  const all = [
+    game.items?.get?.("gcZIt59eKbVeeASi"),
+    ...(game.items?.contents ?? []),
+    ...(actor.items?.contents ?? []),
+    ...(game.actors?.contents ?? []).flatMap(a => a.items?.contents ?? [])
+  ];
+  const match = all.find(isPotionFlask);
+  if (match) return match;
+  // As with heather mead, an item can come from a compendium.
+  for (const pack of game.packs ?? []) {
+    if (pack.documentName !== "Item" || pack.visible === false) continue;
+    try {
+      const index = await pack.getIndex({ fields: ["system.identifier"] });
+      const entry = [...index].find(isPotionFlask);
+      if (entry) {
+        const source = await pack.getDocument(entry._id ?? entry.id);
+        if (isPotionFlask(source)) return source;
+      }
+    } catch (error) { console.warn(NS + " | Поиск шаблона флакона", error); }
+  }
+  return null;
+}
 async function grantBottle(actor) {
-  try { await game.modules.get(NS)?.api?.giveHeatherEmptyBottle?.(actor); }
-  catch (error) { console.warn(NS + " | Не удалось вернуть пустую бутылку зелья", error); }
+  try {
+    // The user gets exactly one small flask after each confirmed potion use.
+    const owned = (actor.items?.contents ?? []).find(isPotionFlask);
+    if (owned) {
+      await owned.update({
+        "system.quantity": Math.max(0, Number(owned.system?.quantity ?? 0)) + 1
+      }, { lipatosPotionInternal: true });
+      return owned;
+    }
+    const source = await findPotionFlaskTemplate(actor);
+    let data;
+    if (source) {
+      data = source.toObject();
+      delete data._id; // Never reuse the world template's document ID.
+      delete data._stats;
+      delete data.ownership;
+      data.system ??= {};
+      data.system.quantity = 1;
+    } else {
+      data = {
+        name: "Небольшой флакон для зелья", type: "loot",
+        img: "icons/svg/item-bag.svg",
+        system: {
+          identifier: POTION_FLASK_ID, quantity: 1,
+          weight: { value: 0.5, units: "lb" },
+          price: { value: 4, denomination: "sp" }
+        }
+      };
+      ui.notifications?.warn?.("Шаблон Item.gcZIt59eKbVeeASi не найден: выдан запасной небольшой флакон.");
+    }
+    const created = await actor.createEmbeddedDocuments("Item", [data],
+      { lipatosPotionInternal: true });
+    return created?.[0] ?? null;
+  } catch (error) {
+    console.error(NS + " | Не удалось вернуть небольшой флакон", error);
+    ui.notifications?.error?.("Зелье выпито, но небольшой флакон не выдан. Проверьте права инвентаря и F12.");
+    return null;
+  }
 }
 async function applyPotion(actor, item, id) {
   if (!isOwner(actor)) return false;
   const definition = IDS[id];
   if (!definition) return false;
-  if (id === "zele-lecheniya") {
+  try {
+  if (id === "zele-malogo-lecheniya" || id === "zele-lecheniya") {
     const roll = await new Roll("2d4 + 2").evaluate();
     await roll.toMessage({
       speaker: ChatMessage.getSpeaker({ actor }),
@@ -107,7 +180,9 @@ async function applyPotion(actor, item, id) {
     await actor.createEmbeddedDocuments("ActiveEffect", [data]);
     await message(actor, "<p><strong>" + safe(definition[0]) + "</strong>: эффект зелья применён.</p>");
   }
-  await grantBottle(actor);
+  } finally {
+    await grantBottle(actor);
+  }
   // dnd5e consumes the item use itself; only finish auto-destroy stacks
   // that remain at their last spent charge. Never subtract a charge twice.
   const owned = actor.items?.get?.(item.id);
