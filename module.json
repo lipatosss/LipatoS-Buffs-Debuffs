@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "12 блюд и 6 сортов пива: бафы действуют только при ПКМ → Использовать. Передача, крафт и удаление не считаются употреблением.",
-  "version": "0.6.31",
+  "description": "Бафы еды, напитков и зелий Айндора, панель эффектов и голод.",
+  "version": "0.6.32",
   "authors": [
     {
       "name": "LipatoS",
@@ -27,7 +27,8 @@
     ]
   },
   "esmodules": [
-    "scripts/main.mjs"
+    "scripts/main.mjs",
+    "scripts/potions.mjs"
   ],
   "styles": [
     "styles/module.css"
@@ -35,5 +36,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.31/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.32/lipatos-buffs-debuffs.zip"
 }
