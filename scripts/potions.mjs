@@ -15,6 +15,7 @@ const IDS = Object.freeze({
   "zele-kostyanogo-pancirya": ["Костяной панцирь", "Первое критическое попадание превращается в обычное попадание. Одно срабатывание до долгого отдыха."],
   "zele-posledney-mesti": ["Последняя месть", "При первом падении до 0 хитов можно реакцией совершить одну атаку оружием перед потерей сознания. Требуется решение игрока."],
   "zele-malogo-lecheniya": ["Исцеление", "Немедленно восстанавливает 2к4 + 2 хита."],
+  "kraftovoe-zele-lecheniya": ["Крафтовое исцеление", "Мгновенно восстанавливает 2к4 + 3 хита."],
   // Backwards compatibility with potions already owned by characters.
   "zele-lecheniya": ["Исцеление", "Немедленно восстанавливает 2к4 + 2 хита."],
   "zele-skorosti": ["Стремительность", "Скорость передвижения удвоена на 10 минут; дополнительных действий и атак нет."],
@@ -146,8 +147,9 @@ async function applyPotion(actor, item, id) {
   const definition = IDS[id];
   if (!definition) return false;
   try {
-  if (id === "zele-malogo-lecheniya" || id === "zele-lecheniya") {
-    const roll = await new Roll("2d4 + 2").evaluate();
+  if (id === "zele-malogo-lecheniya" || id === "zele-lecheniya" || id === "kraftovoe-zele-lecheniya") {
+    const formula = id === "kraftovoe-zele-lecheniya" ? "2d4 + 3" : "2d4 + 2";
+    const roll = await new Roll(formula).evaluate();
     await roll.toMessage({
       speaker: ChatMessage.getSpeaker({ actor }),
       flavor: item.name + " — Исцеление"
@@ -157,7 +159,7 @@ async function applyPotion(actor, item, id) {
     const maxHp = Number(hp.max ?? oldHp);
     const healed = Math.max(0, Math.min(Number(roll.total), maxHp - oldHp));
     if (healed > 0) await actor.update({ "system.attributes.hp.value": oldHp + healed }, { lipatosPotionHealing: true });
-    await message(actor, "<p><strong>Зелье лечения:</strong> восстановлено " + healed + " хитов.</p>");
+    await message(actor, "<p><strong>" + safe(item.name) + ":</strong> восстановлено " + healed + " хитов.</p>");
   } else {
     const old = potionEffects(actor).filter(e => e.flags?.[NS]?.potionId === id);
     if (old.length) await actor.deleteEmbeddedDocuments("ActiveEffect", old.map(e => e.id));
