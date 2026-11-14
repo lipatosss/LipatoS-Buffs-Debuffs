@@ -84,6 +84,25 @@ test("healing rolls only once and caps at maximum HP", async () => {
   assert.equal(flasks[0].system.price.value, 4);
   assert.equal(flasks[0].system.quantity, 1);
 });
+test("crafted healing uses 2d4 + 3 and returns exactly one original small flask", async () => {
+  const t = setup();
+  const apply = vm.runInContext("applyPotion", t.ctx);
+  const item = { id:"crafted", uuid:"Actor.test.Item.crafted",
+    name:"Крафтовое зелье лечения", type:"consumable",
+    system: {identifier:"kraftovoe-zele-lecheniya", uses:{autoDestroy:false}} };
+  await apply(t.actor, item, "kraftovoe-zele-lecheniya");
+  assert.equal(t.rolls.length, 1);
+  assert.equal(t.rolls[0].formula, "2d4 + 3");
+  assert.equal(t.actor.system.attributes.hp.value, 10);
+  assert.equal(t.effects.length, 0);
+  const flasks = t.actor.items.contents.filter(
+    i => i.system?.identifier === "nebolshoi-flakon-dlya-zelia");
+  assert.equal(flasks.length, 1);
+  assert.equal(flasks[0].system.quantity, 1);
+  assert.equal(flasks[0].img, t.flaskTemplate.img);
+  assert.equal(t.actor.items.contents.some(i => i.system?.identifier === "pustaya-butylka"), false);
+});
+
 test("speed applies a timed effect and buffalo adds a distinct flagged effect", async () => {
   const t = setup();
   const apply = vm.runInContext("applyPotion", t.ctx);
