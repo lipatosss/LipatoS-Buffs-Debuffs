@@ -149,7 +149,10 @@ test("speed potion doubles FINAL movement after core modifiers: 25->50, not 60",
   assert.equal(t.actor.system.attributes.movement.swim, 30);
   assert.equal(t.actor.system.attributes.movement.fly, 0);
   assert.equal(t.actor.system.attributes.movement.climb, null);
-  // Running prepareData again (or a refresh) must not compound the multiplier.
+  // A second prepare with an unchanged movement object must not quadruple.
+  prepare.call(t.actor, () => {});
+  assert.equal(t.actor.system.attributes.movement.walk, 50);
+  // A complete derived-data refresh also preserves exactly x2.
   prepare.call(t.actor, normalPreparation);
   assert.equal(t.actor.system.attributes.movement.walk, 50);
   // Other equipment or magic may alter the movement while potion is active.
