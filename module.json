@@ -28,7 +28,8 @@
   },
   "esmodules": [
     "scripts/main.mjs",
-    "scripts/potions.mjs"
+    "scripts/potions.mjs",
+    "scripts/strong-poison.mjs"
   ],
   "styles": [
     "styles/module.css"
