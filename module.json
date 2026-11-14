@@ -1,8 +1,8 @@
 {
   "id": "lipatos-buffs-debuffs",
   "title": "LipatoS — Баффы и дебаффы",
-  "description": "Бафы еды, напитков и зелий Айндора, панель эффектов и голод.",
-  "version": "0.6.33",
+  "description": "Бафы еды, напитков и зелий Айндора, возврат малых флаконов, панель эффектов и голод.",
+  "version": "0.6.34",
   "authors": [
     {
       "name": "LipatoS",
@@ -36,5 +36,5 @@
   "socket": true,
   "url": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs",
   "manifest": "https://raw.githubusercontent.com/lipatosss/LipatoS-Buffs-Debuffs/main/module.json",
-  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.33/lipatos-buffs-debuffs.zip"
+  "download": "https://github.com/lipatosss/LipatoS-Buffs-Debuffs/releases/download/v0.6.34/lipatos-buffs-debuffs.zip"
 }
