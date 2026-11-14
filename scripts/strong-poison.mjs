@@ -37,8 +37,8 @@ function strongPoisonSource(workflow) {
     ?? workflow?.activity?.actor ?? null;
 }
 function strongPoisonToken(actor, combatant = null) {
-  return combatant?.token?.object ?? combatant?.token?.object?.object
-    ?? [...(canvas?.tokens?.placeables ?? [])].find(token => token?.actor?.uuid === actor?.uuid)
+  return combatant?.token?.object
+    ?? [...(globalThis.canvas?.tokens?.placeables ?? [])].find(token => token?.actor?.uuid === actor?.uuid)
     ?? null;
 }
 function strongPoisonConditionImmune(actor) {
