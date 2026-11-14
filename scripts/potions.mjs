@@ -162,12 +162,9 @@ async function applyPotion(actor, item, id) {
     const old = potionEffects(actor).filter(e => e.flags?.[NS]?.potionId === id);
     if (old.length) await actor.deleteEmbeddedDocuments("ActiveEffect", old.map(e => e.id));
     const now = worldTime();
+    // Movement is doubled AFTER the final dnd5e calculation in prepareData.
+    // Do not multiply base movement via an ActiveEffect: e.g. 30 - 5 = 25, not 30 * 2.
     const changes = [];
-    if (id === "zele-skorosti") {
-      for (const movement of ["walk", "fly", "swim", "climb", "burrow"]) {
-        changes.push({ key: "system.attributes.movement." + movement, mode: 1, value: "2", priority: 20 });
-      }
-    }
     const data = {
       name: definition[0], img: item.img || "icons/svg/aura.svg",
       description: "<p>" + definition[1] + "</p>",
@@ -248,10 +245,51 @@ Hooks.on("dnd5e.restCompleted", (actor, result, config) => {
     if (active.length) await actor.deleteEmbeddedDocuments("ActiveEffect", active.map(e => e.id));
   }).catch(error => console.error(NS + " | Очистка зелий после отдыха", error));
 });
-// Derived carrying capacity is rebuilt by dnd5e, so simply setting an Actor
-// property or a persistent numerical base value is unsafe. A libWrapper runs
-// after normal preparation and applies +200 once per prepared result.
+// Foundry/dnd5e rebuilds derived movement and encumbrance when preparing
+// actor data. Modify only the derived results *after* core and other sources.
+// Multiplying raw ActiveEffect movement caused 25 feet -> 60 rather than 50.
+const SPEED_MOVEMENT_TYPES = ["walk", "fly", "swim", "climb", "burrow"];
+function isOldSpeedMultiplier(change) {
+  return SPEED_MOVEMENT_TYPES.some(mode =>
+    change?.key === "system.attributes.movement." + mode
+    && Number(change.mode) === 1 && Number(change.value) === 2);
+}
+async function migrateSpeedEffects(actor) {
+  if (!isOwner(actor)) return 0;
+  const legacy = potionEffects(actor).filter(effect =>
+    effect.flags?.[NS]?.potionId === "zele-skorosti"
+    && [...(effect.changes ?? [])].some(isOldSpeedMultiplier));
+  for (const effect of legacy) {
+    // Retain other custom changes and existing startTime, flags, and icon.
+    await effect.update({
+      changes: [...(effect.changes ?? [])].filter(c => !isOldSpeedMultiplier(c))
+    }, { lipatosPotionSpeedMigration: true });
+  }
+  return legacy.length;
+}
 const encProcessed = new WeakMap();
+const movementProcessed = new WeakMap();
+function doublePreparedMovement(actor) {
+  const effect = potionEffect(actor, "zele-skorosti");
+  if (!effect) return;
+  // Before migration finishes, core still applies the old multiplier.
+  if ([...(effect.changes ?? [])].some(isOldSpeedMultiplier)) return;
+  const movement = actor?.system?.attributes?.movement;
+  if (!movement) return;
+  const previous = movementProcessed.get(actor);
+  for (const type of SPEED_MOVEMENT_TYPES) {
+    const original = movement[type];
+    if (original === null || original === undefined || original === "") continue;
+    const speed = Number(original);
+    if (!Number.isFinite(speed) || speed <= 0) continue;
+    // If preparation reused the unchanged object/result, don't double again.
+    if (previous?.movement === movement && previous.values?.[type] === speed) continue;
+    movement[type] = speed * 2;
+  }
+  movementProcessed.set(actor, {
+    movement, values: Object.fromEntries(SPEED_MOVEMENT_TYPES.map(type => [type, movement[type]]))
+  });
+}
 Hooks.once("setup", () => {
   if (typeof globalThis.libWrapper?.register !== "function") {
     console.warn(NS + " | Для увеличения переносимого веса нужен libWrapper.");
@@ -262,15 +300,20 @@ Hooks.once("setup", () => {
       "CONFIG.Actor.documentClass.prototype.prepareData",
       function(wrapped, ...args) {
         const apply = () => {
-          if (this?.type !== "character" || !potionEffect(this, "zele-buyvola")) return;
-          const enc = this.system?.attributes?.encumbrance;
-          if (!enc || !Number.isFinite(Number(enc.max))) return;
-          const previous = encProcessed.get(this);
-          if (previous?.object === enc && previous.max === enc.max) return;
-          enc.max = Number(enc.max) + 200;
-          if (Number.isFinite(Number(enc.value)) && enc.max > 0 && "pct" in enc)
-            enc.pct = Math.min(100, Number(enc.value) / enc.max * 100);
-          encProcessed.set(this, { object: enc, max: enc.max });
+          if (this?.type === "character" && potionEffect(this, "zele-buyvola")) {
+            const enc = this.system?.attributes?.encumbrance;
+            if (enc && Number.isFinite(Number(enc.max))) {
+              const previous = encProcessed.get(this);
+              if (!(previous?.object === enc && previous.max === enc.max)) {
+                enc.max = Number(enc.max) + 200;
+                if (Number.isFinite(Number(enc.value)) && enc.max > 0 && "pct" in enc)
+                  enc.pct = Math.min(100, Number(enc.value) / enc.max * 100);
+                encProcessed.set(this, { object: enc, max: enc.max });
+              }
+            }
+          }
+          // Core, equipment, other buffs and exhaustion have already resolved.
+          doublePreparedMovement(this);
         };
         const result = wrapped(...args);
         if (result && typeof result.then === "function") return result.then(value => { apply(); return value; });
@@ -445,5 +488,9 @@ Hooks.once("ready", () => {
     usePotionFromContext
   };
   expireAllSpeed();
-  console.info(NS + " | Зелья Айндора: лечение, скорость, груз, феникс, последняя месть, боевые эффекты");
+  for (const actor of game.actors?.contents ?? []) {
+    void migrateSpeedEffects(actor).catch(error =>
+      console.error(NS + " | Не удалось исправить старый эффект скорости", error));
+  }
+  console.info(NS + " | Зелья Айндора: скорость умножает итоговую скорость; другие эффекты сохранены");
 });
