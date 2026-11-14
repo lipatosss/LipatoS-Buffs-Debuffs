@@ -282,6 +282,22 @@ Hooks.on("updateActor", (actor, changes, options, userId) => {
 });
 // Midi-QOL exposes hit targets for a melee attack. Never infer the attacker
 // from combat turn or apply damage on mere HP changes (poisons, hazards, etc.).
+// Only reject a *positively identified* opportunity attack. Ordinary
+// reactions and normal weapon attacks must remain available to opponents.
+Hooks.on("midi-qol.preAttackRoll", workflow => {
+  const activity = workflow?.activity;
+  const hints = [
+    activity?.name, activity?.activation?.condition,
+    workflow?.item?.name, workflow?.item?.system?.activation?.condition
+  ].filter(v => typeof v === "string").join(" ").toLowerCase();
+  const opportunity = workflow?.isOpportunityAttack === true
+    || /opportunity attack|attack of opportunity|провоцированн.*атак|атака по возможности/i.test(hints);
+  if (!opportunity) return;
+  const victims = [...(workflow?.targets ?? [])];
+  if (!victims.some(token => potionEffect(token?.actor, "zele-prizrachnogo-shaga"))) return;
+  ui.notifications?.info?.("Призрачный шаг: провоцированная атака предотвращена.");
+  return false;
+});
 const handledMeleeWorkflows = new WeakSet();
 function midiExecutor() {
   const gm = game.users?.activeGM;
@@ -322,8 +338,8 @@ Hooks.on("midi-qol.hitsChecked", workflow => {
         speaker: ChatMessage.getSpeaker({ actor: victim.actor }),
         flavor: "Кровавые шипы — ответный колющий урон"
       });
-      if (typeof MidiQOL?.DamageOnlyWorkflow === "function") {
-        new MidiQOL.DamageOnlyWorkflow(victim.actor, victim, roll.total,
+      if (typeof globalThis.MidiQOL?.DamageOnlyWorkflow === "function") {
+        new globalThis.MidiQOL.DamageOnlyWorkflow(victim.actor, victim, roll.total,
           "piercing", [attacker], roll, { flavor: "Кровавые шипы" });
       } else {
         ui.notifications?.warn?.("Кровавые шипы: нанесите " + roll.total + " колющего урона атакующему.");
